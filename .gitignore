@@ -1,0 +1,89 @@
+# ==================== Python / Backend ====================
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Local storage
+./storage/uploads/*
+./storage/exports/*
+./storage/exports/
+
+!./storage/uploads/.gitkeep
+!./storage/exports/.gitkeep
+!./storage/exports/
+!./storage/exports/*
+
+# ChromaDB local data
+./chroma_data/
+
+# # ==================== Flutter / Frontend ====================
+# # Flutter/Dart
+# mobile/.dart_tool/
+# mobile/.packages
+# mobile/.pub-cache/
+# mobile/.pub/
+# mobile/build/
+# mobile/.flutter-plugins
+# mobile/.flutter-plugins-dependencies
+
+# # iOS
+# mobile/ios/Pods/
+# mobile/ios/.symlinks/
+# mobile/ios/Flutter/Flutter.framework
+# mobile/ios/Flutter/Flutter.podspec
+# mobile/ios/Runner.xcworkspace/
+
+# # Android
+# mobile/android/.gradle/
+# mobile/android/local.properties
+# mobile/android/*.iml
+# mobile/android/app/debug/
+# mobile/android/app/profile/
+# mobile/android/app/release/
+# mobile/.android/
+
+# ==================== General ====================
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Keep example env
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
