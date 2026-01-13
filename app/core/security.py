@@ -149,7 +149,7 @@ def verify_token(
 
         # Validate token type
         if payload.get("type") != token_type:
-            return None
+           raise ValueError("Invalid token type")
 
         # Validate expiration time
         exp = payload.get("exp")
@@ -258,3 +258,20 @@ def get_token_remaining_time(token: str) -> Optional[int]:
 
     except JWTError:
         return None
+
+
+# This Function used to get user_id from token
+def get_token_subject(token: str) -> Optional[str]:
+    """
+    Extract the subject (user_id) from a token.
+    
+    Args:
+        token: The JWT string
+        
+    Returns:
+        The subject string if valid, None otherwise
+    """
+    payload = verify_token(token)
+    if payload:
+        return payload.get("sub")
+    return None

@@ -14,8 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.db.database import DatabaseManager, check_db_connection
+from app.db.database import check_db_connection
 from app.middleware.logging import LoggingMiddleware
+from app.api.v1.router import api_router
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# Application Lifespan Events
+# ============================================================
+# Code that runs on startup and shutdown
+# ============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -56,15 +62,27 @@ async def lifespan(app: FastAPI):
     logger.info(f"Shutting down {settings.PROJECT_NAME}...")
 
 
-# Create FastAPI application instance
+# ============================================================
+# Create FastAPI Application
+# ============================================================
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="This is Ai Tutor Api",
+    description="""
+    AI-Powered Educational Tutor API
+    
+    Features:
+    - User Authentication (JWT)
+    - Project Management
+    - Document Upload & Processing
+    - AI Chat with RAG
+    - Quiz Generation
+    - Progress Tracking
+    """,
     version="1.0.0",
-    debug=settings.DEBUG,
-    lifespan=lifespan,
-    docs_url="/docs" if settings.DEBUG else None,
-    redoc_url="/redoc" if settings.DEBUG else None,
+    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+    docs_url="/docs",  # Swagger UI
+    redoc_url="/redoc",  # ReDoc
+    lifespan=lifespan
 )
 
 # ----------------------------------------------------
@@ -119,11 +137,15 @@ async def health_check():
         )    
     
 
-# ----------------------------------------------------
-# API Routes
-# ----------------------------------------------------
-# app.include_router(api_router)
-
+# ============================================================
+# Include API Router
+# ============================================================
+# All routes under /api/v1
+# ============================================================
+app.include_router(
+    api_router,
+    prefix=settings.API_V1_PREFIX
+)
 
 # ----------------------------------------------------
 # Exception Handlers

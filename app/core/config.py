@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # Application
     # -------------------------
     PROJECT_NAME: str = "Ai Tutor API"
+    API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = False 
     LOG_LEVEL: str = "INFO"
     TIMEZONE: str = "UTC"
