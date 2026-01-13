@@ -59,7 +59,7 @@ class UserRepository(BaseRepository[User]):
         )
 
         # Save to database
-        await self.db.add(user)
+        self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
 
