@@ -11,8 +11,8 @@ from sqlalchemy import select
 
 from app.repositories.base import BaseRepository
 from app.models import User
-from schemas.auth import UserRegister
-from core.security import get_password_hash
+from app.schemas.auth import UserRegister
+from app.core.security import get_password_hash
 
 class UserRepository(BaseRepository[User]):
     """Repository for User model."""
