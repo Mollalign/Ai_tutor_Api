@@ -3,14 +3,17 @@ from datetime import datetime, timezone
 
 from app.models import User
 from app.repositories.user_repo import UserRepository
+from app.repositories.password_reset_repo import PasswordResetRepository
 from app.schemas.auth import UserRegister, UserLogin, TokenResponse, UserResponse
 from app.core.security import (
     verify_password,
+    get_password_hash,
     create_access_token,
     create_refresh_token,
     verify_refresh_token,
     verify_token,
 )
+from app.utils.email import send_password_reset_code
 
 from app.core.config import settings
 
@@ -25,10 +28,11 @@ class AuthService:
         Initialize with database session.
         
         Args:
-            user_repo: UserRepository instance
+            db: AsyncSession instance
         """
         self.db = db
         self.user_repo = UserRepository(db)
+        self.password_reset_repo = PasswordResetRepository(db)
 
     # ============================================================
     # User Registration
@@ -167,6 +171,104 @@ class AuthService:
             raise ValueError("User account is deactivated")
         
         return user
+
+    # ============================================================
+    # Password Reset - Request
+    # ============================================================
+    
+    async def request_password_reset(self, email: str) -> bool:
+        """
+        Request a password reset for an email.
+        
+        Generates a 6-digit code and sends it via email.
+        Always returns True to prevent email enumeration attacks.
+        
+        Args:
+            email: User's email address
+            
+        Returns:
+            True (always, for security)
+        """
+        # Find user by email
+        user = await self.user_repo.get_by_email(email)
+        
+        if not user:
+            # Return True anyway to prevent email enumeration
+            return True
+        
+        if not user.is_active:
+            # Return True anyway for security
+            return True
+        
+        # Create reset code
+        reset = await self.password_reset_repo.create_reset_code(str(user.id))
+        
+        # Send email with code
+        send_password_reset_code(
+            email=email,
+            code=reset.reset_code,
+            expires_in_minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
+        )
+        
+        return True
+
+    # ============================================================
+    # Password Reset - Verify Code
+    # ============================================================
+    
+    async def verify_reset_code(self, email: str, code: str) -> bool:
+        """
+        Verify a password reset code is valid.
+        
+        Args:
+            email: User's email address
+            code: 6-digit reset code
+            
+        Returns:
+            True if code is valid, False otherwise
+        """
+        reset = await self.password_reset_repo.verify_code(email, code)
+        return reset is not None
+
+    # ============================================================
+    # Password Reset - Reset Password
+    # ============================================================
+    
+    async def reset_password(self, email: str, code: str, new_password: str) -> bool:
+        """
+        Reset user's password using a valid reset code.
+        
+        Args:
+            email: User's email address
+            code: 6-digit reset code
+            new_password: New password to set
+            
+        Returns:
+            True if password was reset successfully
+            
+        Raises:
+            ValueError: If code is invalid or expired
+        """
+        # Verify code
+        reset = await self.password_reset_repo.verify_code(email, code)
+        
+        if not reset:
+            raise ValueError("Invalid or expired reset code")
+        
+        # Get user
+        user = await self.user_repo.get_by_email(email)
+        
+        if not user:
+            raise ValueError("User not found")
+        
+        # Update password
+        user.password_hash = get_password_hash(new_password)
+        await self.db.commit()
+        
+        # Mark code as used
+        await self.password_reset_repo.mark_code_used(str(reset.id))
+        
+        return True
     
 
     # ============================================================

@@ -91,7 +91,12 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     """Schema for setting new password after reset"""
-    code: str
+    email: EmailStr
+    code: str = Field(
+        min_length=6,
+        max_length=6,
+        description="6-digit reset code"
+    )
     new_password: str = Field(
         min_length=8,
         max_length=100,
@@ -109,10 +114,51 @@ class PasswordResetConfirm(BaseModel):
             raise ValueError("Password must contain at least one digit")
         return v
 
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "student@university.edu",
+                "code": "123456",
+                "new_password": "NewSecurePass123"
+            }
+        }
+
+
+class VerifyResetCodeRequest(BaseModel):
+    """Schema for verifying reset code"""
+    email: EmailStr
+    code: str = Field(
+        min_length=6,
+        max_length=6,
+        description="6-digit reset code"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "student@university.edu",
+                "code": "123456"
+            }
+        }
+
 
 # ============================================================
 # Response Schemas (What server sends back)
 # ============================================================
+
+class MessageResponse(BaseModel):
+    """Schema for simple message responses"""
+    message: str
+    success: bool = True
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "Password reset code sent to your email",
+                "success": True
+            }
+        }
+
 
 class UserResponse(BaseModel):
     """Schema for user data in responses (NO password!)"""

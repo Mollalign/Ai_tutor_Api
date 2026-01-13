@@ -9,7 +9,11 @@ from app.schemas.auth import (
     TokenRefreshResponse,
     RefreshTokenRequest,
     UserResponse,
-    ErrorResponse
+    ErrorResponse,
+    PasswordResetRequest,
+    PasswordResetConfirm,
+    VerifyResetCodeRequest,
+    MessageResponse
 )
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
@@ -150,4 +154,123 @@ async def get_me(
         default_socratic_mode=current_user.default_socratic_mode,
         created_at=current_user.created_at,
         last_login=current_user.last_login
-    )    
+    )
+
+
+# ============================================================
+# Forgot Password Endpoint
+# ============================================================
+
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    responses={
+        200: {"description": "Reset code sent if email exists"},
+    }
+)
+async def forgot_password(
+    request_data: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Request a password reset code.
+    
+    - **email**: Registered email address
+    
+    A 6-digit reset code will be sent to the email if it exists.
+    For security, always returns success even if email doesn't exist.
+    """
+    auth_service = AuthService(db)
+    await auth_service.request_password_reset(request_data.email)
+    
+    return MessageResponse(
+        message="If an account with this email exists, a reset code has been sent.",
+        success=True
+    )
+
+
+# ============================================================
+# Verify Reset Code Endpoint
+# ============================================================
+
+@router.post(
+    "/verify-reset-code",
+    response_model=MessageResponse,
+    responses={
+        200: {"description": "Code verification result"},
+        400: {"model": ErrorResponse, "description": "Invalid or expired code"},
+    }
+)
+async def verify_reset_code(
+    request_data: VerifyResetCodeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Verify a password reset code is valid.
+    
+    - **email**: Email address that requested the reset
+    - **code**: 6-digit reset code from email
+    
+    Use this to validate the code before allowing password reset.
+    """
+    auth_service = AuthService(db)
+    is_valid = await auth_service.verify_reset_code(
+        request_data.email,
+        request_data.code
+    )
+    
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code"
+        )
+    
+    return MessageResponse(
+        message="Reset code is valid",
+        success=True
+    )
+
+
+# ============================================================
+# Reset Password Endpoint
+# ============================================================
+
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    responses={
+        200: {"description": "Password reset successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid or expired code"},
+    }
+)
+async def reset_password(
+    request_data: PasswordResetConfirm,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Reset password using a valid reset code.
+    
+    - **email**: Email address that requested the reset
+    - **code**: 6-digit reset code from email
+    - **new_password**: New password (must meet strength requirements)
+    
+    After successful reset, the user can log in with the new password.
+    """
+    auth_service = AuthService(db)
+    
+    try:
+        await auth_service.reset_password(
+            request_data.email,
+            request_data.code,
+            request_data.new_password
+        )
+        
+        return MessageResponse(
+            message="Password has been reset successfully. You can now log in with your new password.",
+            success=True
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )    
