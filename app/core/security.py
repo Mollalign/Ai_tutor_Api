@@ -72,7 +72,7 @@ def create_access_token(
         expire = now + expires_delta
     else:
         expire = now + timedelta(
-            minutes=settings.access_token_expire_minutes
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
     # JWT payload

@@ -54,7 +54,7 @@ class Topic(BaseModel):
     # Relationships
     project = relationship("Project", back_populates="topics")
     document = relationship("Document", back_populates="topics")
-    parent_topic = relationship("Topic", remote_side=[id], backref="child_topics")
+    parent_topic = relationship("Topic", remote_side=lambda: Topic.id, backref="child_topics")
     subtopics = relationship("Subtopic", back_populates="topic", cascade="all, delete-orphan")
     knowledge_states = relationship("KnowledgeState", back_populates="topic")
 

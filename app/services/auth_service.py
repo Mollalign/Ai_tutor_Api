@@ -57,7 +57,7 @@ class AuthService:
             raise ValueError("A user with this email already exists")
         
         # Create new user
-        user = self.user_repo.create_user(user_data)
+        user = await self.user_repo.create_user(user_data)
 
         # Generate tokens
         return self._create_token_response(user)

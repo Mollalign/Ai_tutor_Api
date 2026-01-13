@@ -52,7 +52,7 @@ class UserRepository(BaseRepository[User]):
         # Create new user
         user = User(
            email=user_data.email,
-           password=get_password_hash(user_data.password),
+           password_hash=get_password_hash(user_data.password),
            full_name=user_data.full_name,
            is_active=True,
            default_socratic_mode=True

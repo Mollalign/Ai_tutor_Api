@@ -119,7 +119,7 @@ async def refresh_token(
     auth_service = AuthService(db)
     
     try:
-        return auth_service.refresh_token(token_data.refresh_token)
+        return await auth_service.refresh_token(token_data.refresh_token)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
