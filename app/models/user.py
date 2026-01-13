@@ -18,3 +18,4 @@ class User(BaseModel):
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     knowledge_states = relationship("KnowledgeState", back_populates="user", cascade="all, delete-orphan")
     quiz_attempts = relationship("QuizAttempt", back_populates="user", cascade="all, delete-orphan")
+    password_resets = relationship("PasswordReset", back_populates="user", cascade="all, delete-orphan")

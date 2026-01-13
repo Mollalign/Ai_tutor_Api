@@ -10,6 +10,7 @@ from app.models.quiz import Quiz
 from app.models.quiz_question import QuizQuestion
 from app.models.quiz_attempt import QuizAttempt
 from app.models.quiz_response import QuizResponse
+from app.models.password_reset import PasswordReset
 
 __all__ = [
     "Base",
@@ -25,4 +26,5 @@ __all__ = [
     "QuizQuestion",
     "QuizAttempt",
     "QuizResponse",
+    "PasswordReset",
 ]
