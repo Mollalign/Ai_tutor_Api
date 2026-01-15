@@ -79,67 +79,164 @@ def send_password_reset_code(email: str, code: str, expires_in_minutes: int = 15
     subject = f"Password Reset Code - {settings.PROJECT_NAME}"
     
     html_content = f"""
-    <html>
-        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f9fafb;">
-            <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
-                <div style="background-color: #ffffff; border-radius: 12px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-                    <!-- Header -->
-                    <div style="text-align: center; margin-bottom: 30px;">
-                        <h1 style="color: #4f46e5; font-size: 24px; margin: 0;">{settings.PROJECT_NAME}</h1>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Password Reset</title>
+    </head>
+    <body style="
+    margin: 0;
+    padding: 0;
+    background-color: #f3f4f6;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #111827;
+    ">
+
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr>
+        <td align="center" style="padding: 40px 16px;">
+            
+            <!-- Card -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="
+            max-width: 600px;
+            background-color: #ffffff;
+            border-radius: 14px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+            overflow: hidden;
+            ">
+            
+            <!-- Header -->
+            <tr>
+                <td style="
+                background: linear-gradient(135deg, #4f46e5, #7c3aed);
+                padding: 32px;
+                text-align: center;
+                ">
+                <h1 style="
+                    margin: 0;
+                    font-size: 22px;
+                    color: #ffffff;
+                    font-weight: 700;
+                    letter-spacing: 0.5px;
+                ">
+                    {settings.PROJECT_NAME}
+                </h1>
+                </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+                <td style="padding: 32px;">
+                
+                <h2 style="
+                    margin-top: 0;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: #111827;
+                ">
+                    Reset your password
+                </h2>
+
+                <p style="font-size: 15px; color: #374151;">
+                    Hi there 👋
+                </p>
+
+                <p style="font-size: 15px; color: #374151; line-height: 1.6;">
+                    We received a request to reset the password for your
+                    <strong>{settings.PROJECT_NAME}</strong> account.
+                    Use the code below to continue.
+                </p>
+
+                <!-- Code -->
+                <div style="
+                    margin: 28px 0;
+                    padding: 20px;
+                    text-align: center;
+                    background-color: #f9fafb;
+                    border: 2px dashed #6366f1;
+                    border-radius: 10px;
+                ">
+                    <div style="
+                    font-size: 36px;
+                    font-weight: 700;
+                    letter-spacing: 10px;
+                    color: #4f46e5;
+                    font-family: 'Courier New', Courier, monospace;
+                    ">
+                    {code}
                     </div>
-                    
-                    <!-- Title -->
-                    <h2 style="color: #1f2937; font-size: 20px; margin-bottom: 20px;">Password Reset Request</h2>
-                    
-                    <p style="color: #4b5563; margin-bottom: 15px;">Hello,</p>
-                    <p style="color: #4b5563; margin-bottom: 25px;">
-                        You have requested to reset your password for your {settings.PROJECT_NAME} account.
-                    </p>
-                    
-                    <p style="color: #4b5563; margin-bottom: 15px;">Your password reset code is:</p>
-                    
-                    <!-- Code Box -->
-                    <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 8px; padding: 25px; text-align: center; margin: 25px 0;">
-                        <h1 style="color: #ffffff; font-size: 36px; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">{code}</h1>
-                    </div>
-                    
-                    <!-- Expiration Warning -->
-                    <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 25px 0; border-radius: 0 8px 8px 0;">
-                        <p style="color: #92400e; margin: 0; font-size: 14px;">
-                            ⏱️ This code will expire in <strong>{expires_in_minutes} minutes</strong>.
-                        </p>
-                    </div>
-                    
-                    <p style="color: #6b7280; font-size: 14px; margin-top: 25px;">
-                        If you did not request this password reset, please ignore this email. Your account remains secure.
-                    </p>
-                    
-                    <!-- Footer -->
-                    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-                    <p style="color: #9ca3af; font-size: 12px; text-align: center; margin: 0;">
-                        This is an automated message from {settings.PROJECT_NAME}. Please do not reply to this email.
+                </div>
+
+                <!-- Expiration -->
+                <div style="
+                    background-color: #fffbeb;
+                    border-left: 4px solid #f59e0b;
+                    padding: 12px 16px;
+                    border-radius: 6px;
+                    margin-bottom: 24px;
+                ">
+                    <p style="
+                    margin: 0;
+                    font-size: 14px;
+                    color: #92400e;
+                    ">
+                    ⏳ This code expires in <strong>{expires_in_minutes} minutes</strong>.
                     </p>
                 </div>
-            </div>
-        </body>
+
+                <p style="font-size: 14px; color: #6b7280; line-height: 1.6;">
+                    If you didn’t request this, you can safely ignore this email.
+                    Your account remains secure.
+                </p>
+
+                </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+                <td style="
+                padding: 20px;
+                text-align: center;
+                background-color: #f9fafb;
+                border-top: 1px solid #e5e7eb;
+                ">
+                <p style="
+                    margin: 0;
+                    font-size: 12px;
+                    color: #9ca3af;
+                ">
+                    © {settings.PROJECT_NAME} · Automated message · Do not reply
+                </p>
+                </td>
+            </tr>
+
+            </table>
+
+        </td>
+        </tr>
+    </table>
+
+    </body>
     </html>
     """
-    
+
     plain_content = f"""
-{settings.PROJECT_NAME} - Password Reset Request
+    {settings.PROJECT_NAME} - Password Reset Request
 
-Hello,
+    Hello,
 
-You have requested to reset your password for your {settings.PROJECT_NAME} account.
+    You have requested to reset your password for your {settings.PROJECT_NAME} account.
 
-Your password reset code is: {code}
+    Your password reset code is: {code}
 
-⏱️ This code will expire in {expires_in_minutes} minutes.
+    ⏱️ This code will expire in {expires_in_minutes} minutes.
 
-If you did not request this password reset, please ignore this email. Your account remains secure.
+    If you did not request this password reset, please ignore this email. Your account remains secure.
 
----
-This is an automated message from {settings.PROJECT_NAME}. Please do not reply to this email.
+    ---
+    This is an automated message from {settings.PROJECT_NAME}. Please do not reply to this email.
     """
     
     # Try HTML first, fallback to plain text
