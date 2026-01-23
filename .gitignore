@@ -31,6 +31,7 @@ build/
 ./storage/uploads/*
 ./storage/exports/*
 ./storage/exports/
+./test/
 
 !./storage/uploads/.gitkeep
 !./storage/exports/.gitkeep

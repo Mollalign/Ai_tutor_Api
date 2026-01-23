@@ -57,11 +57,56 @@ class Settings(BaseSettings):
 
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 15
 
+    # -------------------------
+    # Redis (for ARQ task queue)
+    # -------------------------
+    REDIS_URL: str = Field(
+        default="redis://localhost:6379/0",
+        description="Redis connection URL for task queue and caching"
+    )
+    
+    # -------------------------
+    # File Storage
+    # -------------------------
+    STORAGE_BACKEND: str = Field(
+        default="local",
+        description="Storage backend: 'local', 's3', or 'gcs'"
+    )
+    UPLOAD_DIR: str = Field(
+        default="storage/uploads",
+        description="Directory for uploaded files (local storage)"
+    )
+    MAX_FILE_SIZE_MB: int = Field(
+        default=50,
+        ge=1,           # Minimum 1 MB
+        le=500,         # Maximum 500 MB (sanity limit)
+        description="Maximum file upload size in megabytes"
+    )
+
+    # Computed property for bytes (used in validation)
+    @property
+    def MAX_FILE_SIZE_BYTES(self) -> int:
+        """Convert MB to bytes for file size validation."""
+        return self.MAX_FILE_SIZE_MB * 1024 * 1024
+    
+    ALLOWED_FILE_EXTENSIONS: List[str] = Field(
+        default_factory=lambda: ["pdf", "docx", "pptx", "txt"],
+        description="Allowed file extensions for upload"
+    )
+
 
     @field_validator("ALGORITHM")
     def validate_algorithm(cls, v):
         if not v or not isinstance(v, str):
             raise ValueError("ALGORITHM must be a non-empty string.")
+        return v
+    
+    @field_validator("STORAGE_BACKEND")
+    def validate_storage_backend(cls, v):
+        """Ensure storage backend is a valid option."""
+        allowed = {"local", "s3", "gcs"}
+        if v not in allowed:
+            raise ValueError(f"STORAGE_BACKEND must be one of: {allowed}")
         return v
     
 settings = Settings()
