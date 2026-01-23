@@ -1,29 +1,5 @@
 """
 Local Filesystem Storage Backend
-
-This implementation stores files on the local filesystem.
-Perfect for:
-- Development environments
-- Single-server deployments
-- Small-scale applications
-
-For production with multiple servers, use S3 or GCS instead
-(horizontal scaling requires shared storage).
-
-Directory Structure:
--------------------
-{base_path}/
-└── uploads/
-    └── {user_id}/
-        └── {project_id}/
-            └── {uuid}_{filename}
-
-Security Considerations:
------------------------
-1. NEVER trust user-provided filenames directly
-2. Generate unique names to prevent overwrites
-3. Validate file types by content, not extension
-4. Set appropriate file permissions
 """
 
 import os
@@ -97,15 +73,6 @@ class LocalStorage(StorageBackend):
         
         Raises:
             StorageError: If path would escape base_path (attack attempt)
-        
-        Example:
-            # Safe path
-            _get_full_path("users/123/file.pdf")
-            # Returns: /app/storage/uploads/users/123/file.pdf
-            
-            # Attack attempt (path traversal)
-            _get_full_path("../../../etc/passwd")
-            # Raises: StorageError
         """
         # Construct the full path
         full_path = self.base_path / relative_path
@@ -127,21 +94,6 @@ class LocalStorage(StorageBackend):
     def _calculate_checksum(self, content: bytes) -> str:
         """
         Calculate MD5 checksum of file content.
-        
-        Used for:
-        - Integrity verification (detect corruption)
-        - Deduplication (same content = same hash)
-        - ETags in HTTP responses
-        
-        Args:
-            content: File bytes
-        
-        Returns:
-            Hexadecimal MD5 hash string (32 characters)
-        
-        Note:
-            MD5 is NOT cryptographically secure, but it's fast
-            and fine for integrity checking.
         """
         return hashlib.md5(content).hexdigest()
     
@@ -154,17 +106,6 @@ class LocalStorage(StorageBackend):
     ) -> StoredFile:
         """
         Save file to local filesystem.
-        
-        Creates parent directories if they don't exist.
-        Uses async I/O to avoid blocking.
-        
-        Args:
-            file_content: Raw bytes to save
-            destination_path: Where to save (relative to base_path)
-            content_type: MIME type (stored in metadata)
-        
-        Returns:
-            StoredFile with path, size, checksum, etc.
         """
         try:
             full_path = self._get_full_path(destination_path)
@@ -204,15 +145,6 @@ class LocalStorage(StorageBackend):
     async def get(self, path: str) -> bytes:
         """
         Read file content from storage.
-        
-        Args:
-            path: Relative path to file
-        
-        Returns:
-            File content as bytes
-        
-        Raises:
-            FileNotFoundError: If file doesn't exist
         """
         full_path = self._get_full_path(path)
         
@@ -243,12 +175,6 @@ class LocalStorage(StorageBackend):
         Delete a file from storage.
         
         Idempotent: Returns False if file didn't exist (no error).
-        
-        Args:
-            path: Relative path to file
-        
-        Returns:
-            True if deleted, False if didn't exist
         """
         full_path = self._get_full_path(path)
         
