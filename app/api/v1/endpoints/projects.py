@@ -12,6 +12,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.services.project_service import ProjectService
+from app.services.document_service import DocumentService
 
 # ============================================================
 # Router Setup
@@ -158,8 +159,12 @@ async def delete_project(
     This permanently removes the project and all related data.
     """
     project_service = ProjectService(db)
+    document_service = DocumentService(db)
     try:
         await project_service.delete_project(project_id, current_user.id)
+
+        # delete associated document with this project
+        await document_service.delete_project_documents(project_id, current_user.id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return None
