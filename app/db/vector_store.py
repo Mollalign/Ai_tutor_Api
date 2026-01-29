@@ -29,7 +29,7 @@ ChromaDB can use its default or we provide our own.
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from uuid import UUID
 from pathlib import Path
 
@@ -38,7 +38,11 @@ from chromadb.config import Settings as ChromaSettings
 from chromadb.api.models.Collection import Collection
 
 from app.core.config import settings
-from app.ai.rag.chunker import TextChunk, ChunkMetadata
+
+# Import for type checking only to avoid circular import
+# vector_store.py <- rag/__init__.py <- rag/pipeline.py <- vector_store.py
+if TYPE_CHECKING:
+    from app.ai.rag.chunker import TextChunk, ChunkMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +233,7 @@ class VectorStore:
     
     def add_chunks(
         self,
-        chunks: List[TextChunk],
+        chunks: List["TextChunk"],
         embeddings: List[List[float]],
         project_id: UUID,
     ) -> int:
@@ -279,7 +283,7 @@ class VectorStore:
         )
         return len(chunks)
     
-    def _prepare_metadata(self, chunk: TextChunk) -> Dict[str, Any]:
+    def _prepare_metadata(self, chunk: "TextChunk") -> Dict[str, Any]:
         """
         Prepare chunk metadata for ChromaDB.
         
