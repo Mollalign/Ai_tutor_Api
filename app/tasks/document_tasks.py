@@ -2,29 +2,6 @@
 Document Processing Tasks
 
 Background tasks for processing uploaded documents.
-
-Processing Pipeline:
--------------------
-1. STATUS UPDATE: Mark document as "processing"
-2. FILE READ: Get file content from storage
-3. PARSE: Extract text based on file type
-4. CHUNK: Split text into manageable segments
-5. EMBED: Create vector embeddings for each chunk
-6. STORE: Save embeddings to vector database
-7. FINALIZE: Update document status to "ready"
-
-Error Handling:
---------------
-- All errors are caught and logged
-- Document status is set to "failed" with error message
-- Tasks can be retried via the reprocess endpoint
-
-Why Separate Process?
---------------------
-- Long-running tasks don't block API responses
-- Can scale workers independently from API servers
-- Failures don't crash the main application
-- Can process multiple documents in parallel
 """
 
 import logging
@@ -39,6 +16,7 @@ from app.db.database import AsyncSessionLocal
 from app.models.document import Document
 from app.schemas.document import DocumentStatus
 from app.storage import get_storage
+from app.ai.rag.pipeline import DocumentPipeline, get_document_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -46,26 +24,9 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # DATABASE SESSION HELPER
 # ============================================================
-# Workers don't have FastAPI's dependency injection
-# We need to create our own database sessions
 
 async def get_worker_db_session() -> AsyncSession:
-    """
-    Create a database session for worker use.
-    
-    Unlike FastAPI endpoints, workers don't have dependency injection.
-    We manually create and manage sessions.
-    
-    Important: Always close the session when done!
-    
-    Usage:
-        session = await get_worker_db_session()
-        try:
-            # do work
-            await session.commit()
-        finally:
-            await session.close()
-    """
+    """Create a database session for worker use."""
     return AsyncSessionLocal()
 
 
@@ -80,33 +41,18 @@ async def process_document(
     """
     Process an uploaded document.
     
-    This is the main background task that:
-    1. Parses the document to extract text
-    2. Chunks the text for vector storage
-    3. Creates embeddings
-    4. Stores in vector database
+    This task is called by ARQ worker to:
+    1. Parse the document (extract text)
+    2. Chunk the text (split into segments)
+    3. Create embeddings (vectors)
+    4. Store in vector database
     
     Args:
-        ctx: ARQ context containing:
-            - redis: Redis connection
-            - job_id: Unique job identifier
-            - job_try: Retry attempt number (1, 2, 3...)
-        document_id: UUID of the document to process (as string)
+        ctx: ARQ context (job_id, redis, etc.)
+        document_id: UUID of the document to process
     
     Returns:
-        Dict with processing result:
-            - success: bool
-            - document_id: str
-            - chunks_created: int (if successful)
-            - error: str (if failed)
-    
-    ARQ Task Contract:
-    -----------------
-    - Task functions are async
-    - First parameter is always `ctx` (ARQ context)
-    - Additional parameters come from enqueue_job() call
-    - Return value is stored in Redis (for result retrieval)
-    - Exceptions are caught by ARQ and can trigger retries
+        Dict with processing result
     """
     job_id = ctx.get('job_id', 'unknown')
     job_try = ctx.get('job_try', 1)
@@ -116,7 +62,7 @@ async def process_document(
         f"(job: {job_id}, attempt: {job_try})"
     )
     
-    # Convert string to UUID
+    # Validate document ID
     try:
         doc_uuid = UUID(document_id)
     except ValueError:
@@ -128,7 +74,7 @@ async def process_document(
     
     try:
         # ================================================
-        # STEP 1: Get document and update status
+        # STEP 1: Get document and verify it exists
         # ================================================
         document = await _get_document(session, doc_uuid)
         
@@ -137,12 +83,7 @@ async def process_document(
             return {"success": False, "error": "Document not found"}
         
         # Update status to PROCESSING
-        await _update_status(
-            session, 
-            document, 
-            DocumentStatus.PROCESSING
-        )
-        
+        await _update_status(session, document, DocumentStatus.PROCESSING)
         logger.info(f"Document {document_id}: status → PROCESSING")
         
         # ================================================
@@ -153,95 +94,89 @@ async def process_document(
         try:
             file_content = await storage.get(document.file_path)
             logger.info(
-                f"Document {document_id}: read {len(file_content)} bytes "
-                f"from {document.file_path}"
+                f"Document {document_id}: read {len(file_content)} bytes"
             )
         except Exception as e:
             raise ProcessingError(f"Failed to read file: {e}")
         
         # ================================================
-        # STEP 3: Parse document (extract text)
+        # STEP 3: Process through pipeline
         # ================================================
-        # TODO: Implement actual parsing in Phase 3
-        # For now, we'll use a placeholder
+        # Get the processing pipeline
+        pipeline = get_document_pipeline()
         
-        text_content = await _parse_document(
-            file_content, 
-            document.file_type,
-            document.original_filename
+        # If reprocessing, delete existing chunks first
+        if document.chunk_count > 0:
+            logger.info(f"Deleting existing chunks for reprocessing")
+            pipeline.delete_document_chunks(
+                document_id=doc_uuid,
+                project_id=document.project_id
+            )
+        
+        # Run the full processing pipeline
+        result = await pipeline.process_document(
+            document_id=doc_uuid,
+            file_content=file_content,
+            file_type=document.file_type,
+            filename=document.original_filename,
+            project_id=document.project_id
         )
         
-        logger.info(
-            f"Document {document_id}: extracted {len(text_content)} characters"
-        )
-        
         # ================================================
-        # STEP 4: Chunk text
+        # STEP 4: Update document status based on result
         # ================================================
-        # TODO: Implement chunking in Phase 3
-        # For now, create placeholder chunks
-        
-        chunks = await _chunk_text(text_content)
-        chunk_count = len(chunks)
-        
-        logger.info(f"Document {document_id}: created {chunk_count} chunks")
-        
-        # ================================================
-        # STEP 5: Create embeddings
-        # ================================================
-        # TODO: Implement embedding in Phase 3
-        # For now, skip this step
-        
-        # embeddings = await _create_embeddings(chunks)
-        
-        # ================================================
-        # STEP 6: Store in vector database
-        # ================================================
-        # TODO: Implement vector storage in Phase 3
-        # For now, skip this step
-        
-        # await _store_embeddings(document_id, chunks, embeddings)
-        
-        # ================================================
-        # STEP 7: Update status to READY
-        # ================================================
-        await _update_status(
-            session,
-            document,
-            DocumentStatus.READY,
-            chunk_count=chunk_count
-        )
-        
-        logger.info(
-            f"Document {document_id}: processing complete, "
-            f"{chunk_count} chunks created"
-        )
-        
-        return {
-            "success": True,
-            "document_id": document_id,
-            "chunks_created": chunk_count
-        }
+        if result.success:
+            await _update_status(
+                session,
+                document,
+                DocumentStatus.READY,
+                chunk_count=result.chunk_count
+            )
+            
+            logger.info(
+                f"Document {document_id}: processing complete, "
+                f"{result.chunk_count} chunks created"
+            )
+            
+            return {
+                "success": True,
+                "document_id": document_id,
+                "chunks_created": result.chunk_count,
+                "pages_parsed": result.pages_parsed,
+                "total_tokens": result.total_tokens
+            }
+        else:
+            await _update_status(
+                session,
+                document,
+                DocumentStatus.FAILED,
+                error_message=result.error
+            )
+            
+            logger.error(f"Document {document_id}: processing failed - {result.error}")
+            
+            return {
+                "success": False,
+                "document_id": document_id,
+                "error": result.error
+            }
         
     except ProcessingError as e:
-        # Known processing error
         logger.error(f"Document {document_id} processing failed: {e}")
         await _mark_failed(session, doc_uuid, str(e))
         return {"success": False, "document_id": document_id, "error": str(e)}
         
     except Exception as e:
-        # Unexpected error
         logger.exception(f"Document {document_id} unexpected error: {e}")
         await _mark_failed(session, doc_uuid, f"Unexpected error: {str(e)}")
         return {"success": False, "document_id": document_id, "error": str(e)}
         
     finally:
-        # Always close the session
         await session.close()
 
 
 # ============================================================
-# HELPER FUNCTIONS
+# HELPER CLASSES AND FUNCTIONS
 # ============================================================
 
 class ProcessingError(Exception):
@@ -301,108 +236,3 @@ async def _mark_failed(
             )
     except Exception as e:
         logger.error(f"Failed to mark document as failed: {e}")
-
-
-# ============================================================
-# PROCESSING FUNCTIONS (PLACEHOLDERS)
-# ============================================================
-# These will be replaced with real implementations in Phase 3
-
-async def _parse_document(
-    content: bytes, 
-    file_type: str,
-    filename: str
-) -> str:
-    """
-    Parse document and extract text.
-    
-    PLACEHOLDER: Will be replaced with actual parsers:
-    - PDF: pypdf or pdfplumber
-    - DOCX: python-docx
-    - PPTX: python-pptx
-    - TXT: direct decode
-    
-    Args:
-        content: Raw file bytes
-        file_type: Type of file (pdf, docx, pptx, txt)
-        filename: Original filename for logging
-    
-    Returns:
-        Extracted text content
-    """
-    logger.info(f"Parsing {file_type} file: {filename}")
-    
-    if file_type == "txt":
-        # Text files can be decoded directly
-        try:
-            return content.decode('utf-8')
-        except UnicodeDecodeError:
-            try:
-                return content.decode('latin-1')
-            except UnicodeDecodeError:
-                raise ProcessingError("Could not decode text file")
-    
-    # For other types, return placeholder text
-    # TODO: Implement real parsers
-    return f"""
-    [PLACEHOLDER: Document parsing not yet implemented]
-    
-    File: {filename}
-    Type: {file_type}
-    Size: {len(content)} bytes
-    
-    This is placeholder text that will be replaced when 
-    document parsers are implemented in Phase 3.
-    
-    The actual implementation will:
-    - Extract all text from the document
-    - Preserve structure (headings, paragraphs)
-    - Extract metadata (title, author, etc.)
-    """
-
-
-async def _chunk_text(text: str, chunk_size: int = 1000) -> list[str]:
-    """
-    Split text into chunks for vector storage.
-    
-    PLACEHOLDER: Will be replaced with intelligent chunking:
-    - Respect sentence boundaries
-    - Overlap between chunks
-    - Semantic chunking
-    
-    Args:
-        text: Full text to chunk
-        chunk_size: Approximate size of each chunk
-    
-    Returns:
-        List of text chunks
-    """
-    # Simple placeholder chunking
-    # Real implementation will be smarter
-    
-    if not text:
-        return []
-    
-    chunks = []
-    current_pos = 0
-    
-    while current_pos < len(text):
-        # Get chunk of approximate size
-        end_pos = min(current_pos + chunk_size, len(text))
-        
-        # Try to break at sentence boundary
-        if end_pos < len(text):
-            # Look for sentence end (.!?) near chunk boundary
-            for char in '.!?\n':
-                last_sentence = text.rfind(char, current_pos, end_pos)
-                if last_sentence > current_pos:
-                    end_pos = last_sentence + 1
-                    break
-        
-        chunk = text[current_pos:end_pos].strip()
-        if chunk:
-            chunks.append(chunk)
-        
-        current_pos = end_pos
-    
-    return chunks

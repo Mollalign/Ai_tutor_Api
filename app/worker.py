@@ -51,7 +51,6 @@ from app.tasks.document_tasks import process_document
 # ============================================================
 # Logging Configuration
 # ============================================================
-# Configure logging for the worker process
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,53 +67,59 @@ async def startup(ctx: Dict[str, Any]) -> None:
     """
     Called when worker starts.
     
-    Use this for:
-    - Initializing connections
-    - Loading models into memory
-    - Setting up resources shared across jobs
-    
-    The ctx dict can store values that will be available to all jobs.
-    
-    Args:
-        ctx: Worker context dictionary (shared across all jobs)
-    
-    Example:
-        async def startup(ctx):
-            # Load ML model once (not for each job)
-            ctx['model'] = load_model()
-        
-        async def my_task(ctx, data):
-            model = ctx['model']  # Use pre-loaded model
+    We pre-load the embedding model here so:
+    - First document doesn't have cold-start delay
+    - Model is loaded once, not per job
+    - Any loading errors are caught early
     """
-    logger.info("🚀 ARQ Worker starting up...")
+    logger.info("ARQ Worker starting up...")
     
-    # Initialize any shared resources here
-    # For example, when you add vector database:
-    # ctx['vector_store'] = await initialize_vector_store()
+    # ================================================
+    # Pre-load the embedding model
+    # ================================================
+    # This avoids cold-start on first document
+    try:
+        from app.ai.rag.embedder import warmup_model
+        model_info = warmup_model()
+        logger.info(f"Embedding model loaded: {model_info['name']}")
+        
+        # Store model info in context (optional, for reference)
+        ctx['embedding_model'] = model_info['name']
+        ctx['embedding_dimension'] = model_info['dimension']
+        
+    except Exception as e:
+        logger.warning(f"Failed to pre-load embedding model: {e}")
+        logger.warning("Model will be loaded on first use (slower)")
     
-    logger.info("✅ ARQ Worker ready to process jobs")
+    # ================================================
+    # Initialize vector store connection
+    # ================================================
+    try:
+        from app.db.vector_store import get_chroma_client
+        get_chroma_client()  # Initialize the singleton
+        logger.info("Vector store (ChromaDB) initialized")
+    except Exception as e:
+        logger.warning(f"Vector store initialization warning: {e}")
+    
+    logger.info(" ARQ Worker ready to process jobs")
 
 
 async def shutdown(ctx: Dict[str, Any]) -> None:
     """
     Called when worker shuts down.
     
-    Use this for:
-    - Closing connections
-    - Releasing resources
-    - Cleanup operations
-    
-    Args:
-        ctx: Worker context dictionary
+    Clean up resources.
     """
-    logger.info("🛑 ARQ Worker shutting down...")
+    logger.info("ARQ Worker shutting down...")
     
-    # Close any shared resources here
-    # For example:
-    # if 'vector_store' in ctx:
-    #     await ctx['vector_store'].close()
+    # Reset singletons to free memory
+    try:
+        from app.db.vector_store import reset_vector_store
+        reset_vector_store()
+    except Exception as e:
+        logger.debug(f"Vector store cleanup: {e}")
     
-    logger.info("👋 ARQ Worker shutdown complete")
+    logger.info("ARQ Worker shutdown complete")
 
 
 # ============================================================
@@ -127,121 +132,42 @@ class WorkerSettings:
     
     This class is discovered by ARQ when you run:
         arq app.worker.WorkerSettings
-    
-    ARQ looks for these attributes:
-    - functions: List of task functions
-    - redis_settings: How to connect to Redis
-    - on_startup: Function to call on start
-    - on_shutdown: Function to call on stop
-    - And many optional settings...
     """
     
     # ========================================
     # Task Functions
     # ========================================
-    # List all functions that can be called as background tasks
-    # The function name becomes the job name for enqueue_job()
-    
     functions = [
         process_document,
-        # Future tasks:
-        # send_email,
-        # generate_quiz,
-        # update_progress,
     ]
     
     # ========================================
     # Redis Connection
     # ========================================
-    # How to connect to Redis
-    # Uses our helper function from redis.py
-    
     redis_settings = get_arq_redis_settings()
     
     # ========================================
     # Lifecycle Hooks
     # ========================================
-    
     on_startup = startup
     on_shutdown = shutdown
     
     # ========================================
     # Job Settings
     # ========================================
-    
-    # Maximum time a job can run before being killed (in seconds)
-    # Document processing might take a while for large files
-    job_timeout = 600  # 10 minutes
-    
-    # How long to keep job results in Redis (in seconds)
-    # Results can be retrieved with job.result()
-    keep_result = 3600  # 1 hour
-    
-    # Maximum number of times to retry a failed job
-    # Set to 0 to disable retries
-    max_tries = 3
-    
-    # Time to wait between retries (in seconds)
-    # This is a base value - actual delay increases exponentially
-    retry_delay = 60  # 1 minute base delay
+    job_timeout = 600      # 10 minutes (for large documents)
+    keep_result = 3600     # 1 hour
+    max_tries = 3          # Retry failed jobs up to 3 times
+    retry_delay = 60       # 1 minute base delay between retries
     
     # ========================================
     # Concurrency Settings
     # ========================================
-    
-    # Maximum number of jobs to run concurrently
-    # Higher = more parallel processing
-    # Lower = less memory usage
-    max_jobs = 5
-    
-    # Seconds to wait when queue is empty before checking again
-    poll_delay = 0.5
+    max_jobs = 5           # Process up to 5 documents in parallel
+    poll_delay = 0.5       # Check for new jobs every 0.5 seconds
     
     # ========================================
     # Queue Settings
     # ========================================
-    
-    # Name of the default queue
-    # You can have multiple queues for priority
     queue_name = "arq:queue"
-    
-    # ========================================
-    # Health Check (Optional)
-    # ========================================
-    
-    # Enable health check endpoint
-    # Workers will respond to PING with PONG
-    health_check_interval = 10  # seconds
-    
-    # ========================================
-    # Cron Jobs (Optional)
-    # ========================================
-    # Scheduled tasks that run periodically
-    # Uncomment to enable periodic cleanup
-    
-    # cron_jobs = [
-    #     cron(cleanup_old_files, hour=3, minute=0),  # Run at 3 AM daily
-    # ]
-
-
-# ============================================================
-# Optional: Cron Job Example
-# ============================================================
-
-async def cleanup_old_files(ctx: Dict[str, Any]) -> None:
-    """
-    Example cron job: Clean up temporary files.
-    
-    Cron jobs are scheduled tasks that run at specific times.
-    Unlike regular jobs, they're not triggered by enqueue_job().
-    
-    To enable:
-    1. Uncomment the cron_jobs line in WorkerSettings
-    2. Import cron from arq
-    
-    Args:
-        ctx: Worker context
-    """
-    logger.info("Running scheduled cleanup...")
-    # TODO: Implement cleanup logic
-    pass
+    health_check_interval = 10

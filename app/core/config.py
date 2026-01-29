@@ -94,6 +94,59 @@ class Settings(BaseSettings):
         description="Allowed file extensions for upload"
     )
 
+    # =========================================================
+    # NEW: Vector Database Configuration (ChromaDB)
+    # =========================================================
+    CHROMA_PERSIST_DIRECTORY: str = Field(
+        default="storage/chroma",
+        description="Directory for ChromaDB persistent storage"
+    )
+
+    CHROMA_COLLECTION_NAME: str = Field(
+        default="documents",
+        description="Name of the ChromaDB collection for document chunks"
+    )
+    
+    # For production with remote ChromaDB server
+    CHROMA_HOST: Optional[str] = Field(
+        default=None,
+        description="ChromaDB server host (if using client mode)"
+    )
+
+    CHROMA_PORT: int = Field(
+        default=8000,
+        description="ChromaDB server port"
+    )
+
+    # =========================================================
+    # Embedding Configuration (Local - Sentence Transformers)
+    # =========================================================
+
+    EMBEDDING_MODEL: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="Sentence Transformers model for embeddings"
+    )
+
+    EMBEDDING_DIMENSION: int = Field(
+        default=384,
+        description="Embedding vector dimension (must match model)"
+    )
+
+    # Batch size for embedding multiple texts at once
+    # Larger = faster but more memory
+    EMBEDDING_BATCH_SIZE: int = Field(
+        default=32,
+        ge=1,
+        le=256,
+        description="Batch size for embedding generation"
+    )
+
+    # Device for embeddings: 'cpu', 'cuda', 'mps' (Apple Silicon)
+    EMBEDDING_DEVICE: str = Field(
+        default="cpu",
+        description="Device for embedding model: 'cpu', 'cuda', or 'mps'"
+    )
+
 
     @field_validator("ALGORITHM")
     def validate_algorithm(cls, v):

@@ -21,6 +21,8 @@ from app.db.redis import (
     close_redis_pool,
     close_arq_pool,
 )
+from app.db.vector_store import check_vector_store_health
+from app.ai.rag import warmup_model
 from app.middleware.logging import LoggingMiddleware
 from app.api.v1.router import api_router
 
@@ -72,6 +74,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Redis connection error on startup: {e}")
         # Don't fail startup - app can work without Redis (just no background tasks)
+
+    try:
+        model_info = warmup_model()
+        logger.info(f"Embedding model loaded: {model_info['name']}")
+    except Exception as e:
+        logger.warning(f"Failed to warm up embedding model: {e}")    
     
     yield  # Application runs here
     
@@ -138,6 +146,7 @@ async def root():
     }    
 
 
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     """
@@ -146,21 +155,24 @@ async def health_check():
     Checks:
     - Database connectivity
     - Redis connectivity
+    - Vector store connectivity
     """
     try:
         db_healthy = await check_db_connection()
         redis_healthy = await check_redis_connection()
+        vector_healthy = check_vector_store_health()
         
         status = "healthy"
-        if not db_healthy:
+        if not db_healthy or not redis_healthy:
             status = "degraded"
-        if not redis_healthy:
+        if not vector_healthy:
             status = "degraded"
         
         return {
             "status": status,
             "database": "connected" if db_healthy else "disconnected",
             "redis": "connected" if redis_healthy else "disconnected",
+            "vector_store": "connected" if vector_healthy else "disconnected",
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -168,12 +180,9 @@ async def health_check():
             status_code=503,
             content={
                 "status": "unhealthy",
-                "database": "error",
-                "redis": "error",
                 "error": str(e)
             }
-        )    
-    
+        ) 
 
 # ============================================================
 # Include API Router

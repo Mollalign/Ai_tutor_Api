@@ -28,15 +28,9 @@ build/
 *.egg-info/
 
 # Local storage
-./storage/uploads/*
-./storage/exports/*
-./storage/exports/
-./test/
-
-!./storage/uploads/.gitkeep
-!./storage/exports/.gitkeep
-!./storage/exports/
-!./storage/exports/*
+storage/
+test/
+scripts/
 
 # ChromaDB local data
 ./chroma_data/
