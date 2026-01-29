@@ -147,6 +147,49 @@ class Settings(BaseSettings):
         description="Device for embedding model: 'cpu', 'cuda', or 'mps'"
     )
 
+    # =========================================================
+    # LLM Configuration (Google Gemini)
+    # =========================================================
+    # Gemini provides free access with generous limits
+    # Get your API key at: https://aistudio.google.com/apikey
+    # =========================================================
+
+    GEMINI_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Google Gemini API key"
+    )
+
+    # Model options:
+    # - gemini-1.5-flash (fast, good quality, FREE)
+    # - gemini-1.5-pro (best quality, FREE with limits)
+    # - gemini-1.0-pro (older, stable)
+    GEMINI_MODEL: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model to use for chat"
+    )
+
+    # Maximum tokens for LLM response
+    LLM_MAX_TOKENS: int = Field(
+        default=2048,
+        ge=100,
+        le=8192,
+        description="Maximum tokens in LLM response"
+    )
+
+    # Temperature (0 = deterministic, 1 = creative)
+    LLM_TEMPERATURE: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="LLM temperature for response generation"
+    )
+
+    # Maximum context tokens from RAG
+    RAG_MAX_CONTEXT_TOKENS: int = Field(
+        default=2000,
+        description="Maximum tokens for RAG context"
+    )
+
 
     @field_validator("ALGORITHM")
     def validate_algorithm(cls, v):
