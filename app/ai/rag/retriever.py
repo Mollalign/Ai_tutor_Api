@@ -232,9 +232,11 @@ class Retriever:
             )
             chunks.append(chunk)
         
+        # Log retrieval results (safely handle empty chunks list)
+        best_score = chunks[0].score if chunks else 0.0
         logger.info(
             f"Retrieved {len(chunks)} chunks "
-            f"(best score: {chunks[0].score:.3f if chunks else 0})"
+            f"(best score: {best_score:.3f})"
         )
         
         return RetrievalResult(
