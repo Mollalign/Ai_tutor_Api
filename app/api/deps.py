@@ -3,12 +3,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
 import uuid
+import logging
 from datetime import datetime, timezone
 
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.models import User
 from app.core.security import get_token_remaining_time
 from app.services.auth_service import AuthService
+
+logger = logging.getLogger(__name__)
 
 # Security scheme for Swagger UI
 security = HTTPBearer()
@@ -82,3 +85,32 @@ async def get_token_info(
         "remaining_time": remaining_time,
         "expires_at": datetime.now(timezone.utc).timestamp() + remaining_time
     }
+
+
+# =====================================================
+# WebSocket Authentication
+# =====================================================
+async def get_current_user_ws(token: str) -> Optional[User]:
+    """
+    Authenticate user from a JWT token for WebSocket connections.
+    
+    Unlike HTTP dependencies, WebSocket auth must be done manually
+    since we can't use the standard Depends() pattern.
+    
+    Args:
+        token: JWT access token
+        
+    Returns:
+        User if valid, None if invalid
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            auth_service = AuthService(db)
+            user = await auth_service.get_current_user(token)
+            return user
+    except ValueError as e:
+        logger.warning(f"WebSocket auth failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"WebSocket auth error: {e}")
+        return None

@@ -14,21 +14,25 @@ Conversations:
 
 Chat:
 - POST   /conversations/{id}/messages      - Send message (non-streaming)
-- GET    /conversations/{id}/messages/stream - Send message (streaming via SSE)
+- POST   /conversations/{id}/messages/stream - Send message (streaming via SSE)
+
+WebSocket:
+- WS     /conversations/{id}/ws            - Real-time message sync
 """
 
+import asyncio
 import logging
 import json
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.db.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_user_ws
 from app.models.user import User
 from app.schemas.conversation import (
     ConversationCreate,
@@ -44,6 +48,11 @@ from app.services.chat_service import (
     ChatService,
     ChatServiceError,
     ConversationNotFoundError,
+)
+from app.services.websocket_manager import (
+    get_connection_manager,
+    WebSocketMessage,
+    MessageTypes,
 )
 
 logger = logging.getLogger(__name__)
@@ -365,3 +374,161 @@ async def send_message_stream(
                 }
     
     return EventSourceResponse(event_generator())
+
+
+# ============================================================
+# WEBSOCKET ENDPOINT - Real-time Message Sync
+# ============================================================
+
+@router.websocket("/{conversation_id}/ws")
+async def websocket_chat(
+    websocket: WebSocket,
+    conversation_id: UUID,
+):
+    """
+    WebSocket endpoint for real-time message synchronization.
+    
+    Provides:
+    - Real-time delivery of new messages
+    - Message update notifications
+    - Typing indicators (future)
+    
+    Authentication:
+    - Pass token as query param: ?token=...
+    - Or send token as first message after connection: {"type": "auth", "token": "..."}
+    
+    Message Format (received):
+    - {"type": "new_message", "conversation_id": "...", "data": {...}}
+    - {"type": "typing", "conversation_id": "...", "data": {"user_id": "..."}}
+    """
+    manager = get_connection_manager()
+    
+    # Always accept the WebSocket first - this is required before any communication
+    await websocket.accept()
+    logger.info(f"WebSocket accepted for conversation {conversation_id}")
+    
+    # Get token from query params or wait for auth message
+    token = websocket.query_params.get("token")
+    
+    if not token:
+        # Wait for auth message (timeout: 10 seconds)
+        try:
+            auth_data = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=10.0
+            )
+            if auth_data.get("type") != "auth" or not auth_data.get("token"):
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "Authentication required. Send: {type: 'auth', token: '...'}"
+                })
+                await websocket.close(code=4001)
+                return
+            token = auth_data["token"]
+        except asyncio.TimeoutError:
+            await websocket.send_json({
+                "type": "error", 
+                "error": "Authentication timeout"
+            })
+            await websocket.close(code=4001)
+            return
+        except Exception as e:
+            logger.error(f"WebSocket auth error: {e}")
+            await websocket.close(code=4001)
+            return
+    
+    # Authenticate user
+    try:
+        user = await get_current_user_ws(token)
+        if not user:
+            await websocket.send_json({
+                "type": "error",
+                "error": "Invalid token"
+            })
+            await websocket.close(code=4001)
+            return
+    except Exception as e:
+        logger.error(f"WebSocket auth failed: {e}")
+        await websocket.send_json({
+            "type": "error",
+            "error": "Authentication failed"
+        })
+        await websocket.close(code=4001)
+        return
+    
+    # Verify user has access to this conversation
+    from app.db.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        service = ChatService(db)
+        try:
+            await service.get_conversation(
+                conversation_id=conversation_id,
+                user_id=user.id
+            )
+        except ConversationNotFoundError:
+            await websocket.send_json({
+                "type": "error",
+                "error": "Conversation not found or access denied"
+            })
+            await websocket.close(code=4003)
+            return
+    
+    # Register the connection with the manager
+    # (WebSocket is already accepted, so we just register it)
+    if str(conversation_id) not in manager._conversation_connections:
+        manager._conversation_connections[str(conversation_id)] = set()
+    manager._conversation_connections[str(conversation_id)].add(websocket)
+    
+    if str(user.id) not in manager._user_connections:
+        manager._user_connections[str(user.id)] = set()
+    manager._user_connections[str(user.id)].add(websocket)
+    
+    manager._connection_info[websocket] = (str(user.id), str(conversation_id))
+    
+    # Send connection confirmation
+    await websocket.send_json({
+        "type": "connected",
+        "conversation_id": str(conversation_id),
+        "user_id": str(user.id)
+    })
+    
+    logger.info(f"WebSocket authenticated: user={user.id}, conversation={conversation_id}")
+    
+    # Start Redis subscriber for real-time message broadcasting
+    await manager._ensure_redis_subscriber()
+    
+    try:
+        # Keep connection alive and handle client messages
+        while True:
+            try:
+                data = await websocket.receive_json()
+                
+                # Handle client messages (e.g., typing indicator, ping)
+                msg_type = data.get("type")
+                
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+                
+                elif msg_type == "typing":
+                    # Broadcast typing indicator to other users in conversation
+                    await manager.broadcast_to_conversation(
+                        conversation_id=str(conversation_id),
+                        message=WebSocketMessage(
+                            type=MessageTypes.TYPING,
+                            conversation_id=str(conversation_id),
+                            data={"user_id": str(user.id)}
+                        )
+                    )
+                
+            except json.JSONDecodeError:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "Invalid JSON"
+                })
+                
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected: user={user.id}, conversation={conversation_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        manager.disconnect(websocket)

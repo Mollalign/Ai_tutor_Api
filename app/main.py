@@ -21,6 +21,7 @@ from app.db.redis import (
     close_redis_pool,
     close_arq_pool,
 )
+from app.services.websocket_manager import shutdown_connection_manager
 from app.db.vector_store import check_vector_store_health
 from app.ai.rag import warmup_model
 from app.middleware.logging import LoggingMiddleware
@@ -85,6 +86,9 @@ async def lifespan(app: FastAPI):
     
     # ========== SHUTDOWN ==========
     logger.info(f"Shutting down {settings.PROJECT_NAME}...")
+    
+    # Close WebSocket connections
+    await shutdown_connection_manager()
     
     # Close Redis connections
     await close_redis_pool()

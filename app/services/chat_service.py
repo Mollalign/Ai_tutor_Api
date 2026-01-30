@@ -7,6 +7,7 @@ Orchestrates the complete chat flow:
 3. Build prompt with context and history
 4. Get LLM response
 5. Save assistant response with sources
+6. Broadcast message via WebSocket for real-time sync
 """
 
 import logging
@@ -35,6 +36,11 @@ from app.ai.prompts.chat_prompts import (
     build_context_prompt,
 )
 from app.core.config import settings
+from app.services.websocket_manager import (
+    get_connection_manager,
+    WebSocketMessage,
+    MessageTypes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +318,10 @@ class ChatService:
         if not conversation.title and len(history) <= 2:
             await self._auto_generate_title(conversation_id, content)
         
+        # Broadcast messages for real-time sync
+        await self._broadcast_new_message(conversation_id, user_message)
+        await self._broadcast_new_message(conversation_id, assistant_message)
+        
         return {
             "message": MessageResponse.model_validate(assistant_message),
             "sources": sources,
@@ -415,6 +425,10 @@ class ChatService:
             # Update conversation
             await self.conversation_repo.touch(conversation_id)
             
+            # Broadcast messages for real-time sync (to other connected clients)
+            await self._broadcast_new_message(conversation_id, user_message)
+            await self._broadcast_new_message(conversation_id, assistant_message)
+            
             logger.info(f"ChatService: Yielding done event, messageId={assistant_message.id}")
             yield {
                 "type": "done",
@@ -486,3 +500,40 @@ class ChatService:
             title += "..."
         
         await self.conversation_repo.update(conversation_id, title=title)
+    
+    async def _broadcast_new_message(
+        self,
+        conversation_id: UUID,
+        message: Message
+    ) -> None:
+        """
+        Broadcast a new message to all connected WebSocket clients.
+        
+        This enables real-time message sync across devices/sessions.
+        """
+        try:
+            manager = get_connection_manager()
+            
+            # Convert message to response format
+            message_data = {
+                "id": str(message.id),
+                "conversation_id": str(message.conversation_id),
+                "role": message.role.value if hasattr(message.role, 'value') else message.role,
+                "content": message.content,
+                "sources": message.sources,
+                "tokens_used": message.tokens_used,
+                "created_at": message.created_at.isoformat() if message.created_at else None,
+            }
+            
+            await manager.broadcast_to_conversation(
+                conversation_id=str(conversation_id),
+                message=WebSocketMessage(
+                    type=MessageTypes.NEW_MESSAGE,
+                    conversation_id=str(conversation_id),
+                    data=message_data
+                )
+            )
+            logger.info(f"Broadcast new message {message.id} to conversation {conversation_id}")
+        except Exception as e:
+            # Don't fail the request if broadcast fails
+            logger.warning(f"Failed to broadcast message: {e}")
