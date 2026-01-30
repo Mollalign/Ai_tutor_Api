@@ -389,14 +389,20 @@ class ChatService:
         
         # Stream response
         full_response = ""
+        chunk_count = 0
         
         try:
+            logger.info("ChatService: Starting LLM streaming...")
             async for chunk in chat_completion_stream(
                 messages=llm_messages,
                 system_prompt=system_prompt
             ):
+                chunk_count += 1
                 full_response += chunk
+                logger.info(f"ChatService: Chunk #{chunk_count}, length={len(chunk)}, total={len(full_response)}")
                 yield {"type": "content", "content": chunk}
+            
+            logger.info(f"ChatService: Streaming complete, {chunk_count} chunks, {len(full_response)} total chars")
             
             # Save assistant message
             assistant_message = await self.message_repo.create_message(
@@ -409,6 +415,7 @@ class ChatService:
             # Update conversation
             await self.conversation_repo.touch(conversation_id)
             
+            logger.info(f"ChatService: Yielding done event, messageId={assistant_message.id}")
             yield {
                 "type": "done",
                 "message_id": str(assistant_message.id)

@@ -473,9 +473,10 @@ class VectorStore:
                 "distance": distance,
             })
         
+        top_score = search_results[0]['score'] if search_results else 0
         logger.debug(
             f"Search returned {len(search_results)} results "
-            f"(top score: {search_results[0]['score']:.3f if search_results else 0})"
+            f"(top score: {top_score:.3f})"
         )
         
         return search_results

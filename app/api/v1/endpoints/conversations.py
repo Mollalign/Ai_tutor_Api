@@ -292,55 +292,76 @@ async def send_message_stream(
     conversation_id: UUID,
     data: ChatRequest,
     current_user: User = Depends(get_current_user),
-    service: ChatService = Depends(get_chat_service),
+    # NOTE: Don't use Depends(get_chat_service) here - session closes before streaming completes!
 ):
     """Send a message and stream the AI response."""
     
+    # Capture user_id before entering generator (user object may be garbage collected)
+    user_id = current_user.id
+    message_content = data.message
+    
     async def event_generator():
         """Generate SSE events from chat stream."""
-        try:
-            async for chunk in service.send_message_stream(
-                conversation_id=conversation_id,
-                user_id=current_user.id,
-                content=data.message
-            ):
-                chunk_type = chunk.get("type", "content")
+        # Create database session INSIDE the generator so it stays open during streaming
+        from app.db.database import AsyncSessionLocal
+        
+        async with AsyncSessionLocal() as db:
+            service = ChatService(db)
+            
+            try:
+                chunk_count = 0
+                logger.info(f"SSE: Starting stream for conversation {conversation_id}")
                 
-                if chunk_type == "sources":
-                    yield {
-                        "event": "sources",
-                        "data": json.dumps({
-                            "sources": [s.model_dump() for s in chunk["sources"]]
-                        })
-                    }
-                elif chunk_type == "content":
-                    yield {
-                        "event": "content",
-                        "data": json.dumps({"text": chunk["content"]})
-                    }
-                elif chunk_type == "done":
-                    yield {
-                        "event": "done",
-                        "data": json.dumps({
-                            "message_id": chunk.get("message_id")
-                        })
-                    }
-                elif chunk_type == "error":
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({"error": chunk.get("error")})
-                    }
+                async for chunk in service.send_message_stream(
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    content=message_content
+                ):
+                    chunk_type = chunk.get("type", "content")
+                    logger.info(f"SSE: Yielding chunk type={chunk_type}")
                     
-        except ConversationNotFoundError:
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": "Conversation not found"})
-            }
-        except Exception as e:
-            logger.error(f"Streaming error: {e}")
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": "Failed to generate response"})
-            }
+                    if chunk_type == "sources":
+                        yield {
+                            "event": "sources",
+                            "data": json.dumps({
+                                "sources": [s.model_dump() for s in chunk["sources"]]
+                            })
+                        }
+                    elif chunk_type == "content":
+                        chunk_count += 1
+                        content_text = chunk["content"]
+                        logger.info(f"SSE: Content chunk #{chunk_count}, length={len(content_text)}")
+                        yield {
+                            "event": "content",
+                            "data": json.dumps({"text": content_text})
+                        }
+                    elif chunk_type == "done":
+                        logger.info(f"SSE: Done event, total chunks={chunk_count}, messageId={chunk.get('message_id')}")
+                        yield {
+                            "event": "done",
+                            "data": json.dumps({
+                                "message_id": chunk.get("message_id")
+                            })
+                        }
+                    elif chunk_type == "error":
+                        logger.error(f"SSE: Error event: {chunk.get('error')}")
+                        yield {
+                            "event": "error",
+                            "data": json.dumps({"error": chunk.get("error")})
+                        }
+                        
+            except ConversationNotFoundError:
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": "Conversation not found"})
+                }
+            except Exception as e:
+                import traceback
+                logger.error(f"Streaming error: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)})
+                }
     
     return EventSourceResponse(event_generator())

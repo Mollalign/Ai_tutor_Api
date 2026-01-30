@@ -147,6 +147,10 @@ async def chat_completion_stream(
     
     Yields text chunks as they're generated.
     """
+    import asyncio
+    import queue
+    import threading
+    
     client = get_client()
     
     contents = format_messages_for_gemini(messages)
@@ -158,19 +162,54 @@ async def chat_completion_stream(
         system_instruction=system_prompt,
     )
     
+    # Use a queue to communicate between threads
+    chunk_queue: queue.Queue = queue.Queue()
+    error_holder = [None]  # Use list to allow mutation in closure
+    
+    def stream_in_thread():
+        """Run the sync streaming in a separate thread."""
+        try:
+            for chunk in client.models.generate_content_stream(
+                model=settings.GEMINI_MODEL,
+                contents=contents,
+                config=config
+            ):
+                if chunk.text:
+                    chunk_queue.put(chunk.text)
+            # Signal completion
+            chunk_queue.put(None)
+        except Exception as e:
+            error_holder[0] = e
+            chunk_queue.put(None)
+    
+    # Start streaming in background thread
+    thread = threading.Thread(target=stream_in_thread)
+    thread.start()
+    
     try:
-        # Use streaming
-        for chunk in client.models.generate_content_stream(
-            model=settings.GEMINI_MODEL,
-            contents=contents,
-            config=config
-        ):
-            if chunk.text:
-                yield chunk.text
-                
-    except Exception as e:
-        logger.error(f"Gemini streaming error: {e}")
-        raise
+        loop = asyncio.get_event_loop()
+        
+        while True:
+            # Get chunk from queue (with timeout to allow event loop to run)
+            chunk = await loop.run_in_executor(
+                None, 
+                lambda: chunk_queue.get(timeout=60)
+            )
+            
+            if chunk is None:
+                # Stream completed or errored
+                if error_holder[0]:
+                    raise error_holder[0]
+                break
+            
+            logger.debug(f"Streaming chunk: {len(chunk)} chars")
+            yield chunk
+            
+    except queue.Empty:
+        logger.error("Streaming timeout - no response from Gemini")
+        raise TimeoutError("Streaming timeout")
+    finally:
+        thread.join(timeout=5)
 
 
 # ============================================================
