@@ -45,9 +45,15 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     TIMEZONE: str = "UTC"
 
-    CORS_ORIGINS: List[str] = Field(default_factory=lambda: ["http://localhost:3000"])
-    FRONTEND_URL: Optional[str] = None
-    ALLOWED_HOSTS: List[str] = Field(default_factory=lambda: ["localhost"])
+    CORS_ORIGINS: List[str] = Field(default_factory=lambda: [
+        "http://localhost:3000",
+        "https://mollalign.vercel.app",
+    ])
+    FRONTEND_URL: str = "https://mollalign.vercel.app"
+    ALLOWED_HOSTS: List[str] = Field(default_factory=lambda: [
+        "localhost",
+        "mollalign.vercel.app",
+    ])
 
     SQLALCHEMY_ECHO: bool = False
     DB_POOL_MIN_SIZE: Optional[int] = None
