@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, projects, documents , conversations
+from app.api.v1.endpoints import auth, projects, documents, conversations, sharing
 
 # ============================================================
 # Main API v1 Router
@@ -30,6 +30,12 @@ api_router.include_router(
 api_router.include_router(
     conversations.router,
     prefix="/conversations"
+)
+
+# Sharing routes
+api_router.include_router(
+    sharing.router,
+    prefix=""  # Routes define their own prefixes (/shares, /shared, etc.)
 )
 
 

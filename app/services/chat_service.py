@@ -65,6 +65,7 @@ from app.ai.loaders.url_loader import (
     detect_url_type,
     URLType,
 )
+from app.repositories.sharing_repo import ConversationAccessRepository
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,7 @@ class ChatService:
         self.conversation_repo = ConversationRepository(db)
         self.message_repo = MessageRepository(db)
         self.project_repo = ProjectRepository(db)
+        self.access_repo = ConversationAccessRepository(db)
         self.retriever: Retriever = get_retriever()
     
     # ============================================================
@@ -147,14 +149,34 @@ class ChatService:
     async def get_conversation(
         self,
         conversation_id: UUID,
-        user_id: UUID
+        user_id: UUID,
+        check_shared_access: bool = True
     ) -> ConversationWithMessages:
-        """Get a conversation with messages."""
+        """
+        Get a conversation with messages.
+        
+        Access is granted if:
+        1. User owns the conversation
+        2. User has been granted shared access (if check_shared_access=True)
+        """
         conversation = await self.conversation_repo.get_with_messages(
             conversation_id
         )
         
-        if not conversation or conversation.user_id != user_id:
+        if not conversation:
+            raise ConversationNotFoundError("Conversation not found")
+        
+        # Check ownership
+        has_access = conversation.user_id == user_id
+        
+        # Check shared access if not owner
+        if not has_access and check_shared_access:
+            has_access = await self.access_repo.has_access(
+                conversation_id=conversation_id,
+                user_id=user_id
+            )
+        
+        if not has_access:
             raise ConversationNotFoundError("Conversation not found")
         
         return self._build_conversation_response(
