@@ -561,6 +561,27 @@ class ChatService:
             has_context=bool(context) or bool(url_content)
         )
         
+        # ============================================================
+        # Handle image analysis (non-streaming part)
+        # ============================================================
+        image_analysis = None
+        if image_base64 or image_url:
+            try:
+                from app.ai.llm.langchain_client import analyze_image
+                logger.info("ChatService: Analyzing attached image...")
+                
+                image_analysis = await analyze_image(
+                    image_base64=image_base64,
+                    image_url=image_url,
+                    prompt=content,
+                    system_prompt=system_prompt
+                )
+                logger.info(f"ChatService: Image analysis complete, length={len(image_analysis)}")
+            except Exception as e:
+                logger.error(f"Image analysis failed: {e}")
+                yield {"type": "error", "error": f"Image analysis failed: {str(e)}"}
+                return
+        
         # Stream response
         full_response = ""
         chunk_count = 0
@@ -569,16 +590,27 @@ class ChatService:
             logger.info("ChatService: Starting LangChain streaming...")
             
             # ============================================================
-            # CHANGED: Uses LangChain streaming (same interface)
+            # If we have image analysis, stream it directly
+            # Otherwise, use normal chat completion streaming
             # ============================================================
-            async for chunk in chat_completion_stream(
-                messages=llm_messages,
-                system_prompt=system_prompt
-            ):
-                chunk_count += 1
-                full_response += chunk
-                logger.debug(f"ChatService: Chunk #{chunk_count}, length={len(chunk)}")
-                yield {"type": "content", "content": chunk}
+            if image_analysis:
+                # Stream the image analysis response (already complete, but yield in chunks)
+                chunk_size = 20
+                for i in range(0, len(image_analysis), chunk_size):
+                    chunk = image_analysis[i:i+chunk_size]
+                    chunk_count += 1
+                    full_response += chunk
+                    yield {"type": "content", "content": chunk}
+            else:
+                # Normal text-only streaming
+                async for chunk in chat_completion_stream(
+                    messages=llm_messages,
+                    system_prompt=system_prompt
+                ):
+                    chunk_count += 1
+                    full_response += chunk
+                    logger.debug(f"ChatService: Chunk #{chunk_count}, length={len(chunk)}")
+                    yield {"type": "content", "content": chunk}
             
             logger.info(f"ChatService: Streaming complete, {chunk_count} chunks")
             

@@ -227,12 +227,25 @@ class ChatRequest(BaseModel):
     Request to send a chat message.
     
     This is the main endpoint for chatting.
+    Supports optional image attachments and URL extraction.
     """
     message: str = Field(
         ...,
         min_length=1,
         max_length=10000,
         description="User's message"
+    )
+    image_base64: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded image data for image analysis"
+    )
+    image_url: Optional[str] = Field(
+        default=None,
+        description="URL of an image to analyze"
+    )
+    auto_extract_urls: bool = Field(
+        default=True,
+        description="Whether to automatically extract content from URLs in the message"
     )
     
     @field_validator("message")

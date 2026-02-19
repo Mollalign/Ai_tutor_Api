@@ -254,7 +254,10 @@ async def send_message(
         result = await service.send_message(
             conversation_id=conversation_id,
             user_id=current_user.id,
-            content=data.message
+            content=data.message,
+            image_base64=data.image_base64,
+            image_url=data.image_url,
+            auto_extract_urls=data.auto_extract_urls,
         )
         
         return ChatResponse(
@@ -305,9 +308,12 @@ async def send_message_stream(
 ):
     """Send a message and stream the AI response."""
     
-    # Capture user_id before entering generator (user object may be garbage collected)
+    # Capture all data before entering generator (objects may be garbage collected)
     user_id = current_user.id
     message_content = data.message
+    image_base64 = data.image_base64
+    image_url = data.image_url
+    auto_extract_urls = data.auto_extract_urls
     
     async def event_generator():
         """Generate SSE events from chat stream."""
@@ -319,12 +325,15 @@ async def send_message_stream(
             
             try:
                 chunk_count = 0
-                logger.info(f"SSE: Starting stream for conversation {conversation_id}")
+                logger.info(f"SSE: Starting stream for conversation {conversation_id}, has_image={image_base64 is not None}")
                 
                 async for chunk in service.send_message_stream(
                     conversation_id=conversation_id,
                     user_id=user_id,
-                    content=message_content
+                    content=message_content,
+                    image_base64=image_base64,
+                    image_url=image_url,
+                    auto_extract_urls=auto_extract_urls,
                 ):
                     chunk_type = chunk.get("type", "content")
                     logger.info(f"SSE: Yielding chunk type={chunk_type}")
