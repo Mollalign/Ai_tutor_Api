@@ -1,0 +1,118 @@
+# Render Blueprint Configuration
+# This file defines your infrastructure as code
+# Deploy by connecting your repo and selecting "Blueprint"
+
+services:
+  # ============================================
+  # Main FastAPI Web Service
+  # ============================================
+  - type: web
+    name: ai-tutor-api
+    runtime: python
+    region: oregon
+    plan: free
+    
+    # Build configuration
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    # Start command
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    
+    # Health check endpoint
+    healthCheckPath: /health
+    
+    # Environment variables
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+      
+      # Database (Neon PostgreSQL) - SET MANUALLY
+      - key: DATABASE_URL
+        sync: false
+      
+      # Redis (Upstash) - SET MANUALLY
+      - key: REDIS_URL
+        sync: false
+      
+      # Google Gemini API - SET MANUALLY
+      - key: GEMINI_API_KEY
+        sync: false
+      
+      # Security - SET MANUALLY
+      - key: SECRET_KEY
+        sync: false
+      
+      # App Configuration
+      - key: DEBUG
+        value: "false"
+      
+      - key: FRONTEND_URL
+        value: "https://mollalign.vercel.app"
+      
+      - key: CORS_ORIGINS
+        value: '["https://mollalign.vercel.app"]'
+      
+      # Embedding model runs on CPU
+      - key: EMBEDDING_DEVICE
+        value: "cpu"
+      
+      # Storage paths (within Render container)
+      - key: STORAGE_BACKEND
+        value: "local"
+      
+      - key: UPLOAD_DIR
+        value: "/opt/render/project/src/storage/uploads"
+      
+      - key: CHROMA_PERSIST_DIRECTORY
+        value: "/opt/render/project/src/storage/chroma"
+
+  # ============================================
+  # Background Worker (ARQ) for document processing
+  # ============================================
+  - type: worker
+    name: ai-tutor-worker
+    runtime: python
+    region: oregon
+    plan: free
+    
+    # Build configuration
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    # Start command for ARQ worker
+    startCommand: arq app.worker.WorkerSettings
+    
+    # Environment variables (same as web service)
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+      
+      - key: DATABASE_URL
+        sync: false
+      
+      - key: REDIS_URL
+        sync: false
+      
+      - key: GEMINI_API_KEY
+        sync: false
+      
+      - key: SECRET_KEY
+        sync: false
+      
+      - key: DEBUG
+        value: "false"
+      
+      - key: EMBEDDING_DEVICE
+        value: "cpu"
+      
+      - key: STORAGE_BACKEND
+        value: "local"
+      
+      - key: UPLOAD_DIR
+        value: "/opt/render/project/src/storage/uploads"
+      
+      - key: CHROMA_PERSIST_DIRECTORY
+        value: "/opt/render/project/src/storage/chroma"
