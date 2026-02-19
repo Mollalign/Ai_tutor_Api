@@ -26,6 +26,7 @@ class Message(Base):
     content = Column(Text, nullable=False)
     sources = Column(JSONB, nullable=True)     # Citations for AI responses
     tokens_used = Column(Integer, nullable=True)  # LLM token usage
+    attachments = Column(JSONB, nullable=True)    # Additional data (images, URLs, etc.)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
     # Relationships

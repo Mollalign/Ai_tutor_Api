@@ -5,9 +5,14 @@ Orchestrates the complete chat flow:
 1. Save user message
 2. Retrieve relevant context (RAG)
 3. Build prompt with context and history
-4. Get LLM response
+4. Get LLM response (via LangChain)
 5. Save assistant response with sources
 6. Broadcast message via WebSocket for real-time sync
+
+NEW in LangChain version:
+- Multimodal support (images)
+- URL content extraction
+- LangChain-based LLM calls
 """
 
 import logging
@@ -30,7 +35,6 @@ from app.schemas.conversation import (
     SourceCitation,
 )
 from app.ai.rag import get_retriever, Retriever
-from app.ai.llm.gemini_client import chat_completion, chat_completion_stream
 from app.ai.prompts.chat_prompts import (
     build_system_prompt,
     build_context_prompt,
@@ -40,6 +44,26 @@ from app.services.websocket_manager import (
     get_connection_manager,
     WebSocketMessage,
     MessageTypes,
+)
+
+# ============================================================
+# CHANGED: Import LangChain client instead of direct Gemini
+# ============================================================
+# OLD:
+# from app.ai.llm.gemini_client import chat_completion, chat_completion_stream
+
+# NEW:
+from app.ai.llm.langchain_client import (
+    chat_completion,
+    chat_completion_stream,
+    create_image_message,
+    analyze_image,
+)
+from app.ai.loaders.url_loader import (
+    load_url,
+    extract_urls_from_text,
+    detect_url_type,
+    URLType,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,8 +87,10 @@ class ChatService:
     - Conversation CRUD
     - Message management
     - RAG retrieval
-    - LLM interaction
+    - LLM interaction (via LangChain)
     - Response streaming
+    - Multimodal messages (images)
+    - URL content extraction
     """
     
     def __init__(self, db: AsyncSession):
@@ -75,7 +101,7 @@ class ChatService:
         self.retriever: Retriever = get_retriever()
     
     # ============================================================
-    # CONVERSATION MANAGEMENT
+    # CONVERSATION MANAGEMENT (UNCHANGED)
     # ============================================================
     
     async def create_conversation(
@@ -93,13 +119,11 @@ class ChatService:
         Returns:
             Created conversation
         """
-        # If project_id provided, verify access
         if data.project_id:
             project = await self.project_repo.get_by_id(data.project_id)
             if not project or project.user_id != user_id:
                 raise ChatServiceError("Project not found")
         
-        # Create conversation
         conversation = await self.conversation_repo.create(
             user_id=user_id,
             project_id=data.project_id,
@@ -107,7 +131,6 @@ class ChatService:
             is_socratic=data.is_socratic
         )
         
-        # If initial message provided, process it
         messages = []
         if data.initial_message:
             response = await self.send_message(
@@ -115,7 +138,6 @@ class ChatService:
                 user_id=user_id,
                 content=data.initial_message
             )
-            # Get messages after sending
             messages = await self.message_repo.get_conversation_messages(
                 conversation.id
             )
@@ -216,30 +238,38 @@ class ChatService:
         return ConversationResponse.model_validate(conversation)
     
     # ============================================================
-    # CHAT - MAIN METHOD
+    # CHAT - MAIN METHOD (UPDATED FOR LANGCHAIN)
     # ============================================================
     
     async def send_message(
         self,
         conversation_id: UUID,
         user_id: UUID,
-        content: str
+        content: str,
+        # NEW: Optional attachments
+        image_base64: Optional[str] = None,
+        image_url: Optional[str] = None,
+        auto_extract_urls: bool = True,
     ) -> Dict[str, Any]:
         """
         Send a message and get AI response.
         
         This is the main chat method:
         1. Verify access
-        2. Save user message
-        3. Get context (RAG) if project chat
-        4. Build prompt
-        5. Get LLM response
-        6. Save and return response
+        2. Extract URLs if present (NEW)
+        3. Save user message
+        4. Get context (RAG) if project chat
+        5. Build prompt with context and URL content
+        6. Get LLM response (via LangChain)
+        7. Save and return response
         
         Args:
             conversation_id: Conversation UUID
             user_id: User's UUID
             content: User's message
+            image_base64: Optional base64-encoded image (NEW)
+            image_url: Optional URL to image (NEW)
+            auto_extract_urls: Auto-extract content from URLs in message (NEW)
         
         Returns:
             Dict with response, sources, tokens
@@ -250,11 +280,55 @@ class ChatService:
         if not conversation or conversation.user_id != user_id:
             raise ConversationNotFoundError("Conversation not found")
         
+        # ============================================================
+        # NEW: Extract URL content if enabled
+        # ============================================================
+        url_content = ""
+        url_metadata = []
+        
+        if auto_extract_urls:
+            urls = extract_urls_from_text(content)
+            
+            for url in urls:
+                try:
+                    url_type = detect_url_type(url)
+                    documents = await load_url(url)
+                    
+                    for doc in documents:
+                        # Limit content to avoid token overflow
+                        extracted_text = doc.page_content[:5000]
+                        url_content += f"\n\n[Content from {url}]:\n{extracted_text}"
+                        
+                        url_metadata.append({
+                            "url": url,
+                            "type": url_type,
+                            "title": doc.metadata.get("title", ""),
+                            "chars_extracted": len(extracted_text),
+                        })
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to extract URL {url}: {e}")
+                    url_metadata.append({
+                        "url": url,
+                        "error": str(e),
+                    })
+        
+        # ============================================================
         # Save user message
+        # ============================================================
+        message_attachments = {}
+        if image_base64 or image_url:
+            message_attachments["has_image"] = True
+            if image_url:
+                message_attachments["image_url"] = image_url
+        if url_metadata:
+            message_attachments["urls"] = url_metadata
+        
         user_message = await self.message_repo.create_message(
             conversation_id=conversation_id,
             role=MessageRole.USER,
-            content=content
+            content=content,
+            attachments=message_attachments if message_attachments else None
         )
         
         # Get conversation history
@@ -287,16 +361,24 @@ class ChatService:
                     for chunk in retrieval_result.chunks[:3]
                 ]
         
+        # ============================================================
         # Build messages for LLM
-        llm_messages = self._build_llm_messages(history, context)
+        # ============================================================
+        llm_messages = self._build_llm_messages(
+            history, 
+            context,
+            url_content=url_content,  # NEW: Include URL content
+        )
         
         # Build system prompt
         system_prompt = build_system_prompt(
             is_socratic=conversation.is_socratic,
-            has_context=bool(context)
+            has_context=bool(context) or bool(url_content)
         )
         
-        # Get LLM response
+        # ============================================================
+        # Get LLM response (LangChain - same interface, different impl)
+        # ============================================================
         response = await chat_completion(
             messages=llm_messages,
             system_prompt=system_prompt
@@ -322,17 +404,30 @@ class ChatService:
         await self._broadcast_new_message(conversation_id, user_message)
         await self._broadcast_new_message(conversation_id, assistant_message)
         
-        return {
+        result = {
             "message": MessageResponse.model_validate(assistant_message),
             "sources": sources,
             "tokens_used": response["tokens_used"]
         }
+        
+        # NEW: Include URL extraction info if any
+        if url_metadata:
+            result["urls_extracted"] = url_metadata
+        
+        return result
+    
+    # ============================================================
+    # STREAMING (UPDATED FOR LANGCHAIN)
+    # ============================================================
     
     async def send_message_stream(
         self,
         conversation_id: UUID,
         user_id: UUID,
-        content: str
+        content: str,
+        image_base64: Optional[str] = None,
+        image_url: Optional[str] = None,
+        auto_extract_urls: bool = True,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Send a message and stream the AI response.
@@ -340,7 +435,7 @@ class ChatService:
         Yields chunks as they're generated.
         
         Yields:
-            Dict with type ('content', 'sources', 'done', 'error')
+            Dict with type ('content', 'sources', 'urls', 'done', 'error')
         """
         # Get and verify conversation
         conversation = await self.conversation_repo.get_by_id(conversation_id)
@@ -349,11 +444,54 @@ class ChatService:
             yield {"type": "error", "error": "Conversation not found"}
             return
         
+        # ============================================================
+        # NEW: Extract URL content
+        # ============================================================
+        url_content = ""
+        url_metadata = []
+        
+        if auto_extract_urls:
+            urls = extract_urls_from_text(content)
+            
+            for url in urls:
+                try:
+                    url_type = detect_url_type(url)
+                    documents = await load_url(url)
+                    
+                    for doc in documents:
+                        extracted_text = doc.page_content[:5000]
+                        url_content += f"\n\n[Content from {url}]:\n{extracted_text}"
+                        
+                        url_metadata.append({
+                            "url": url,
+                            "type": url_type,
+                            "title": doc.metadata.get("title", ""),
+                            "chars_extracted": len(extracted_text),
+                        })
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to extract URL {url}: {e}")
+                    url_metadata.append({
+                        "url": url,
+                        "error": str(e),
+                    })
+        
+        # Yield URL extraction results
+        if url_metadata:
+            yield {"type": "urls", "urls": url_metadata}
+        
         # Save user message
+        message_attachments = {}
+        if image_base64 or image_url:
+            message_attachments["has_image"] = True
+        if url_metadata:
+            message_attachments["urls"] = url_metadata
+        
         user_message = await self.message_repo.create_message(
             conversation_id=conversation_id,
             role=MessageRole.USER,
-            content=content
+            content=content,
+            attachments=message_attachments if message_attachments else None
         )
         
         # Get conversation history
@@ -391,10 +529,14 @@ class ChatService:
             yield {"type": "sources", "sources": sources}
         
         # Build messages and prompt
-        llm_messages = self._build_llm_messages(history, context)
+        llm_messages = self._build_llm_messages(
+            history, 
+            context,
+            url_content=url_content,
+        )
         system_prompt = build_system_prompt(
             is_socratic=conversation.is_socratic,
-            has_context=bool(context)
+            has_context=bool(context) or bool(url_content)
         )
         
         # Stream response
@@ -402,17 +544,21 @@ class ChatService:
         chunk_count = 0
         
         try:
-            logger.info("ChatService: Starting LLM streaming...")
+            logger.info("ChatService: Starting LangChain streaming...")
+            
+            # ============================================================
+            # CHANGED: Uses LangChain streaming (same interface)
+            # ============================================================
             async for chunk in chat_completion_stream(
                 messages=llm_messages,
                 system_prompt=system_prompt
             ):
                 chunk_count += 1
                 full_response += chunk
-                logger.info(f"ChatService: Chunk #{chunk_count}, length={len(chunk)}, total={len(full_response)}")
+                logger.debug(f"ChatService: Chunk #{chunk_count}, length={len(chunk)}")
                 yield {"type": "content", "content": chunk}
             
-            logger.info(f"ChatService: Streaming complete, {chunk_count} chunks, {len(full_response)} total chars")
+            logger.info(f"ChatService: Streaming complete, {chunk_count} chunks")
             
             # Save assistant message
             assistant_message = await self.message_repo.create_message(
@@ -425,11 +571,10 @@ class ChatService:
             # Update conversation
             await self.conversation_repo.touch(conversation_id)
             
-            # Broadcast messages for real-time sync (to other connected clients)
+            # Broadcast messages
             await self._broadcast_new_message(conversation_id, user_message)
             await self._broadcast_new_message(conversation_id, assistant_message)
             
-            logger.info(f"ChatService: Yielding done event, messageId={assistant_message.id}")
             yield {
                 "type": "done",
                 "message_id": str(assistant_message.id)
@@ -440,23 +585,116 @@ class ChatService:
             yield {"type": "error", "error": str(e)}
     
     # ============================================================
-    # HELPER METHODS
+    # NEW: IMAGE ANALYSIS METHOD
+    # ============================================================
+    
+    async def analyze_image_in_chat(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        prompt: str,
+        image_base64: Optional[str] = None,
+        image_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Analyze an image within a conversation context.
+        
+        This method:
+        1. Saves the user message with image reference
+        2. Sends image + prompt to Gemini via LangChain
+        3. Saves and returns the AI's analysis
+        
+        Args:
+            conversation_id: Conversation UUID
+            user_id: User's UUID
+            prompt: User's question about the image
+            image_base64: Base64-encoded image data
+            image_url: URL to the image
+        
+        Returns:
+            Dict with AI's image analysis
+        """
+        if not image_base64 and not image_url:
+            raise ChatServiceError("Either image_base64 or image_url is required")
+        
+        # Verify conversation access
+        conversation = await self.conversation_repo.get_by_id(conversation_id)
+        
+        if not conversation or conversation.user_id != user_id:
+            raise ConversationNotFoundError("Conversation not found")
+        
+        # Save user message
+        user_message = await self.message_repo.create_message(
+            conversation_id=conversation_id,
+            role=MessageRole.USER,
+            content=prompt,
+            attachments={
+                "has_image": True,
+                "image_url": image_url,
+            }
+        )
+        
+        # Build system prompt for image analysis
+        system_prompt = build_system_prompt(
+            is_socratic=conversation.is_socratic,
+            has_context=True
+        )
+        system_prompt += "\n\nThe user has shared an image. Analyze it thoroughly and helpfully."
+        
+        # Get image analysis from LangChain
+        analysis = await analyze_image(
+            image_base64=image_base64,
+            image_url=image_url,
+            prompt=prompt,
+            system_prompt=system_prompt
+        )
+        
+        # Save assistant response
+        assistant_message = await self.message_repo.create_message(
+            conversation_id=conversation_id,
+            role=MessageRole.ASSISTANT,
+            content=analysis
+        )
+        
+        # Update conversation
+        await self.conversation_repo.touch(conversation_id)
+        
+        # Broadcast messages
+        await self._broadcast_new_message(conversation_id, user_message)
+        await self._broadcast_new_message(conversation_id, assistant_message)
+        
+        return {
+            "message": MessageResponse.model_validate(assistant_message),
+            "sources": [],
+            "tokens_used": 0  # Token tracking for images is complex
+        }
+    
+    # ============================================================
+    # HELPER METHODS (UPDATED)
     # ============================================================
     
     def _build_llm_messages(
         self,
         history: List[Message],
-        context: str = ""
+        context: str = "",
+        url_content: str = "",  # NEW parameter
     ) -> List[Dict[str, str]]:
         """Build message list for LLM."""
         messages = []
         
-        # Add context if available
+        # Add RAG context if available
         if context:
             context_prompt = build_context_prompt(context)
             messages.append({
                 "role": "system",
                 "content": context_prompt
+            })
+        
+        # NEW: Add URL content if extracted
+        if url_content:
+            messages.append({
+                "role": "system",
+                "content": f"The user's message references URLs. Here is the extracted content:{url_content}"
             })
         
         # Add conversation history
@@ -494,7 +732,6 @@ class ChatService:
         first_message: str
     ) -> None:
         """Auto-generate conversation title from first message."""
-        # Simple: Use first ~50 chars of message
         title = first_message[:50].strip()
         if len(first_message) > 50:
             title += "..."
@@ -506,15 +743,10 @@ class ChatService:
         conversation_id: UUID,
         message: Message
     ) -> None:
-        """
-        Broadcast a new message to all connected WebSocket clients.
-        
-        This enables real-time message sync across devices/sessions.
-        """
+        """Broadcast a new message to all connected WebSocket clients."""
         try:
             manager = get_connection_manager()
             
-            # Convert message to response format
             message_data = {
                 "id": str(message.id),
                 "conversation_id": str(message.conversation_id),
@@ -535,5 +767,4 @@ class ChatService:
             )
             logger.info(f"Broadcast new message {message.id} to conversation {conversation_id}")
         except Exception as e:
-            # Don't fail the request if broadcast fails
             logger.warning(f"Failed to broadcast message: {e}")

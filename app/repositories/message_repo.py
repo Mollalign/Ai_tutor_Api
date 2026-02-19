@@ -85,7 +85,8 @@ class MessageRepository(BaseRepository[Message]):
         role: MessageRole,
         content: str,
         sources: Optional[dict] = None,
-        tokens_used: Optional[int] = None
+        tokens_used: Optional[int] = None,
+        attachments: Optional[dict] = None
     ) -> Message:
         """
         Create a new message.
@@ -96,6 +97,7 @@ class MessageRepository(BaseRepository[Message]):
             content: Message text
             sources: Citation data (for assistant messages)
             tokens_used: Token count (for assistant messages)
+            attachments: Additional data (images, URLs, etc.)
         
         Returns:
             Created message
@@ -105,7 +107,8 @@ class MessageRepository(BaseRepository[Message]):
             role=role,
             content=content,
             sources=sources,
-            tokens_used=tokens_used
+            tokens_used=tokens_used,
+            attachments=attachments
         )
     
     async def count_conversation_messages(
