@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, projects, documents, conversations, sharing
+from app.api.v1.endpoints import auth, projects, documents, conversations, sharing, quizzes, topics, knowledge
 
 # ============================================================
 # Main API v1 Router
@@ -39,4 +39,17 @@ api_router.include_router(
 )
 
 
-# api_router.include_router(quizzes.router, prefix="/quizzes")
+api_router.include_router(
+    quizzes.router,
+    prefix=""  # Routes define their own prefixes (/projects/{id}/quizzes, /quizzes/{id})
+)
+
+api_router.include_router(
+    topics.router,
+    prefix=""  # Routes define their own prefixes (/projects/{id}/topics)
+)
+
+api_router.include_router(
+    knowledge.router,
+    prefix=""  # Routes define their own prefixes (/projects/{id}/knowledge, /progress/stats)
+)
