@@ -176,8 +176,8 @@ class CloudinaryStorage(StorageBackend):
         """
         Download file content from Cloudinary.
 
-        Uses private_download_url to generate an API-key-authenticated,
-        time-limited URL that works regardless of access restrictions.
+        Uses the Admin API to get the resource's secure_url (CDN link),
+        then downloads the file content from that URL.
 
         Args:
             path: Storage path (public_id)
@@ -188,20 +188,17 @@ class CloudinaryStorage(StorageBackend):
         public_id = self._build_public_id(path)
 
         try:
-            # Extract the file extension for the format parameter
-            ext = path.rsplit(".", 1)[-1] if "." in path else ""
-
-            # Generate a fully authenticated download URL
-            download_url = cloudinary.utils.private_download_url(
+            # Use the Admin API to get the resource metadata + URL
+            resource = cloudinary.api.resource(
                 public_id,
-                ext,
                 resource_type="raw",
             )
 
+            download_url = resource.get("secure_url") or resource.get("url")
             if not download_url:
                 raise StorageFileNotFoundError(f"No URL for file: {path}")
 
-            logger.debug(f"Downloading from Cloudinary: {download_url[:120]}...")
+            logger.debug(f"Downloading from Cloudinary CDN: {download_url}")
 
             response = await self._http_client.get(download_url)
             response.raise_for_status()
