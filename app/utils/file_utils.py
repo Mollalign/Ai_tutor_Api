@@ -8,10 +8,11 @@ Always assume user input is malicious!
 import os
 import re
 import uuid
-import magic
 import logging
 from typing import Optional, Tuple
 from pathlib import Path
+
+import filetype
 
 from app.core.config import settings
 from app.schemas.document import (
@@ -28,45 +29,48 @@ logger = logging.getLogger(__name__)
 # ============================================================
 def detect_mime_type(file_content: bytes) -> str:
     """
-    Detect the actual MIME type of a file by reading its content.
-    
-    How It Works:
-    -------------
-    Files have "magic bytes" at the beginning that identify their type:
-    - PDF starts with "%PDF"
-    - PNG starts with specific bytes: 89 50 4E 47
-    - ZIP (DOCX/PPTX) starts with "PK"
-    
-    The python-magic library reads these bytes and returns the MIME type.
-    """
-    # Create a Magic instance configured for MIME type detection
-    # mime=True means return MIME type (e.g., "application/pdf")
-    # without it, returns description (e.g., "PDF document, version 1.4")
-    mime_detector = magic.Magic(mime=True)
+    Detect the actual MIME type of a file by reading its magic bytes.
 
-    # from_buffer() reads bytes, from_file() reads from path
-    # We use from_buffer since we already have the content in memory
-    mime_type = mime_detector.from_buffer(file_content)
-    
-    logger.debug(f"Detected MIME type: {mime_type}")
-    return mime_type
+    Uses the pure-Python ``filetype`` library so no system
+    dependencies (libmagic) are needed on cloud platforms.
+    """
+    kind = filetype.guess(file_content)
+
+    if kind is not None:
+        logger.debug(f"Detected MIME type: {kind.mime}")
+        return kind.mime
+
+    # filetype doesn't detect plain text -- check manually
+    try:
+        file_content[:1024].decode("utf-8")
+        logger.debug("Detected MIME type: text/plain (fallback)")
+        return "text/plain"
+    except (UnicodeDecodeError, ValueError):
+        pass
+
+    return "application/octet-stream"
 
 
 def detect_mime_type_from_path(file_path: str) -> str:
     """
     Detect MIME type from a file path.
-    
-    Use this when you have a file on disk but haven't read it yet.
-    More memory-efficient for large files.
-    
+
     Args:
         file_path: Path to the file
-    
+
     Returns:
         MIME type string
     """
-    mime_detector = magic.Magic(mime=True)
-    return mime_detector.from_file(file_path)
+    kind = filetype.guess(file_path)
+    if kind is not None:
+        return kind.mime
+
+    try:
+        with open(file_path, "rb") as f:
+            f.read(1024).decode("utf-8")
+        return "text/plain"
+    except (UnicodeDecodeError, ValueError, OSError):
+        return "application/octet-stream"
 
 
 # ============================================================
