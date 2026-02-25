@@ -85,6 +85,36 @@ class GoogleAuthRequest(BaseModel):
     id_token: str = Field(..., description="Google ID token from the client SDK")
 
 
+class UserUpdateRequest(BaseModel):
+    """Schema for updating user profile fields."""
+    full_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    default_socratic_mode: Optional[bool] = None
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            return " ".join(v.split())
+        return v
+
+
+class ChangePasswordRequest(BaseModel):
+    """Schema for changing the user's password."""
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=100)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+
 # ============================================================
 # Response Schemas (What server sends back)
 # ============================================================

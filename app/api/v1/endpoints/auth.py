@@ -15,6 +15,8 @@ from app.schemas.auth import (
     VerifyResetCodeRequest,
     MessageResponse,
     GoogleAuthRequest,
+    UserUpdateRequest,
+    ChangePasswordRequest,
 )
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
@@ -191,6 +193,81 @@ async def get_me(
         created_at=current_user.created_at,
         last_login=current_user.last_login
     )
+
+
+# ============================================================
+# Update Profile Endpoint
+# ============================================================
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    responses={
+        200: {"description": "Profile updated"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+    },
+)
+async def update_me(
+    update_data: UserUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the current user's profile fields."""
+    if update_data.full_name is not None:
+        current_user.full_name = update_data.full_name
+    if update_data.default_socratic_mode is not None:
+        current_user.default_socratic_mode = update_data.default_socratic_mode
+
+    await db.commit()
+    await db.refresh(current_user)
+
+    return UserResponse(
+        id=str(current_user.id),
+        email=current_user.email,
+        full_name=current_user.full_name,
+        is_active=current_user.is_active,
+        default_socratic_mode=current_user.default_socratic_mode,
+        created_at=current_user.created_at,
+        last_login=current_user.last_login,
+    )
+
+
+# ============================================================
+# Change Password Endpoint
+# ============================================================
+
+@router.post(
+    "/change-password",
+    response_model=MessageResponse,
+    responses={
+        200: {"description": "Password changed"},
+        400: {"model": ErrorResponse, "description": "Invalid current password"},
+    },
+)
+async def change_password(
+    request_data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change password for email-authenticated users."""
+    from app.core.security import verify_password, get_password_hash
+
+    if current_user.auth_provider != "email" or current_user.password_hash is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account uses Google Sign-In and has no password to change.",
+        )
+
+    if not verify_password(request_data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+
+    current_user.password_hash = get_password_hash(request_data.new_password)
+    await db.commit()
+
+    return MessageResponse(message="Password changed successfully.", success=True)
 
 
 # ============================================================
