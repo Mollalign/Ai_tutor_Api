@@ -355,11 +355,14 @@ async def send_message_stream(
                         }
                     elif chunk_type == "done":
                         logger.info(f"SSE: Done event, total chunks={chunk_count}, messageId={chunk.get('message_id')}")
+                        done_data = {
+                            "message_id": chunk.get("message_id")
+                        }
+                        if chunk.get("title"):
+                            done_data["title"] = chunk["title"]
                         yield {
                             "event": "done",
-                            "data": json.dumps({
-                                "message_id": chunk.get("message_id")
-                            })
+                            "data": json.dumps(done_data)
                         }
                     elif chunk_type == "error":
                         logger.error(f"SSE: Error event: {chunk.get('error')}")

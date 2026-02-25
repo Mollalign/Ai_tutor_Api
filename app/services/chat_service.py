@@ -199,11 +199,22 @@ class ChatService:
             limit=limit
         )
         
+        project_name_cache: Dict[UUID, str] = {}
         result = []
         for conv in conversations:
             msg_count = await self.conversation_repo.get_message_count(conv.id)
             last_msg = await self.conversation_repo.get_last_message_time(conv.id)
             
+            p_name = None
+            if conv.project_id:
+                if conv.project_id in project_name_cache:
+                    p_name = project_name_cache[conv.project_id]
+                else:
+                    project = await self.project_repo.get_by_id(conv.project_id)
+                    p_name = project.name if project else None
+                    if p_name:
+                        project_name_cache[conv.project_id] = p_name
+
             result.append(ConversationResponse(
                 id=conv.id,
                 user_id=conv.user_id,
@@ -214,7 +225,8 @@ class ChatService:
                 updated_at=conv.updated_at,
                 message_count=msg_count,
                 last_message_at=last_msg,
-                chat_type=ChatType.PROJECT if conv.project_id else ChatType.QUICK
+                chat_type=ChatType.PROJECT if conv.project_id else ChatType.QUICK,
+                project_name=p_name,
             ))
         
         return result
@@ -224,13 +236,26 @@ class ChatService:
         conversation_id: UUID,
         user_id: UUID
     ) -> bool:
-        """Delete a conversation."""
+        """Delete a conversation.
+        
+        Uses a raw SQL DELETE to trigger PostgreSQL's ON DELETE CASCADE,
+        which properly cleans up all related rows (messages, 
+        conversation_access, shared_conversations, conversation_forks).
+        """
+        from sqlalchemy import delete as sql_delete
+        
         conversation = await self.conversation_repo.get_by_id(conversation_id)
         
         if not conversation or conversation.user_id != user_id:
             raise ConversationNotFoundError("Conversation not found")
         
-        return await self.conversation_repo.delete(conversation_id)
+        # Expunge the loaded instance from the session to prevent 
+        # SQLAlchemy from trying to handle relationships via ORM cascade
+        await self.db.execute(
+            sql_delete(Conversation).where(Conversation.id == conversation_id)
+        )
+        await self.db.commit()
+        return True
     
     async def update_conversation(
         self,
@@ -625,14 +650,25 @@ class ChatService:
             # Update conversation
             await self.conversation_repo.touch(conversation_id)
             
+            # Auto-generate title on first message
+            generated_title = None
+            if not conversation.title and len(history) <= 2:
+                await self._auto_generate_title(conversation_id, content)
+                refreshed = await self.conversation_repo.get_by_id(conversation_id)
+                if refreshed and refreshed.title:
+                    generated_title = refreshed.title
+
             # Broadcast messages
             await self._broadcast_new_message(conversation_id, user_message)
             await self._broadcast_new_message(conversation_id, assistant_message)
             
-            yield {
+            done_payload = {
                 "type": "done",
-                "message_id": str(assistant_message.id)
+                "message_id": str(assistant_message.id),
             }
+            if generated_title:
+                done_payload["title"] = generated_title
+            yield done_payload
             
         except Exception as e:
             logger.error(f"Streaming error: {e}")
@@ -785,11 +821,27 @@ class ChatService:
         conversation_id: UUID,
         first_message: str
     ) -> None:
-        """Auto-generate conversation title from first message."""
-        title = first_message[:50].strip()
-        if len(first_message) > 50:
-            title += "..."
-        
+        """Auto-generate a concise conversation title using the LLM."""
+        try:
+            from app.ai.llm.langchain_client import get_llm
+
+            llm = get_llm(temperature=0.3, max_tokens=30)
+            response = await llm.ainvoke(
+                "Generate a very short title (3-6 words, no quotes) that captures "
+                "the topic of a conversation that starts with this message:\n\n"
+                f'"{first_message[:300]}"\n\n'
+                "Return ONLY the title text, nothing else."
+            )
+            title = response.content.strip().strip('"\'').strip()
+            if not title or len(title) < 2:
+                raise ValueError("Empty title")
+            title = title[:60]
+        except Exception as e:
+            logger.warning(f"LLM title generation failed, using fallback: {e}")
+            title = first_message[:50].strip()
+            if len(first_message) > 50:
+                title += "..."
+
         await self.conversation_repo.update(conversation_id, title=title)
     
     async def _broadcast_new_message(

@@ -18,7 +18,7 @@ from datetime import datetime
 
 from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, Enum, Text, Integer
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.models.base import BaseModel
 
@@ -85,7 +85,10 @@ class SharedConversation(BaseModel):
     view_count = Column(Integer, default=0, nullable=False)
     
     # Relationships
-    conversation = relationship("Conversation", backref="shares")
+    conversation = relationship(
+        "Conversation", 
+        backref=backref("shares", cascade="all, delete-orphan", passive_deletes=True)
+    )
     shared_by = relationship("User", foreign_keys=[shared_by_user_id])
     
     @property
@@ -143,7 +146,10 @@ class ConversationAccess(BaseModel):
     is_active = Column(Boolean, default=True, nullable=False)
     
     # Relationships
-    conversation = relationship("Conversation", backref="access_grants")
+    conversation = relationship(
+        "Conversation", 
+        backref=backref("access_grants", cascade="all, delete-orphan", passive_deletes=True)
+    )
     user = relationship("User", foreign_keys=[user_id], backref="conversation_access")
     granted_by = relationship("User", foreign_keys=[granted_by_user_id])
 
@@ -202,7 +208,7 @@ class ConversationFork(BaseModel):
     forked_conversation = relationship(
         "Conversation", 
         foreign_keys=[forked_conversation_id],
-        backref="fork_info"
+        backref=backref("fork_info", cascade="all, delete-orphan", passive_deletes=True)
     )
     forked_by = relationship("User")
     forked_at_message = relationship("Message")

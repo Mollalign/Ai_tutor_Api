@@ -179,6 +179,10 @@ class ConversationResponse(BaseModel):
         default=ChatType.QUICK,
         description="Type of chat (quick or project)"
     )
+    project_name: Optional[str] = Field(
+        None,
+        description="Name of the associated project"
+    )
     
     class Config:
         from_attributes = True
