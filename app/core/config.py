@@ -159,32 +159,24 @@ class Settings(BaseSettings):
     )
 
     # =========================================================
-    # Embedding Configuration (Local - Sentence Transformers)
+    # Embedding Configuration (Google Gemini API)
     # =========================================================
 
     EMBEDDING_MODEL: str = Field(
-        default="all-MiniLM-L6-v2",
-        description="Sentence Transformers model for embeddings"
+        default="gemini-embedding-001",
+        description="Gemini embedding model name"
     )
 
     EMBEDDING_DIMENSION: int = Field(
-        default=384,
-        description="Embedding vector dimension (must match model)"
+        default=768,
+        description="Output embedding dimension (gemini-embedding-001 supports up to 3072)"
     )
 
-    # Batch size for embedding multiple texts at once
-    # Larger = faster but more memory
     EMBEDDING_BATCH_SIZE: int = Field(
-        default=32,
+        default=100,
         ge=1,
-        le=256,
-        description="Batch size for embedding generation"
-    )
-
-    # Device for embeddings: 'cpu', 'cuda', 'mps' (Apple Silicon)
-    EMBEDDING_DEVICE: str = Field(
-        default="cpu",
-        description="Device for embedding model: 'cpu', 'cuda', or 'mps'"
+        le=100,
+        description="Texts per Gemini API call (max 100)"
     )
 
     # =========================================================

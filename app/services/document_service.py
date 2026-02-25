@@ -123,34 +123,40 @@ class DocumentService:
     async def _enqueue_processing(self, document_id: UUID) -> None:
         """
         Add document to processing queue.
-        
-        This enqueues a background task to:
-        1. Parse the document (extract text)
-        2. Chunk the text
-        3. Create embeddings
-        4. Store in vector database
-        
-        The task runs asynchronously - we don't wait for it.
-        
-        Args:
-            document_id: ID of document to process
+
+        Tries ARQ (Redis worker) first. If Redis is unavailable,
+        falls back to in-process background task via asyncio so
+        documents still get processed on free-tier hosts without
+        a separate worker service.
         """
         try:
             pool = await get_arq_pool()
-            
-            # Enqueue the job with document ID
-            # 'process_document' is the task name (defined in worker.py)
             await pool.enqueue_job(
                 'process_document',
                 document_id=str(document_id)
             )
-            
-            logger.info(f"Document {document_id} queued for processing")
-            
+            logger.info(f"Document {document_id} queued for processing (ARQ)")
+
         except Exception as e:
-            # Don't fail upload if queue fails
-            # Document is saved, can be reprocessed later
-            logger.error(f"Failed to enqueue document {document_id}: {e}")
+            logger.warning(
+                f"ARQ queue unavailable ({e}), "
+                f"falling back to in-process processing for {document_id}"
+            )
+            self._process_inline(document_id)
+
+    def _process_inline(self, document_id: UUID) -> None:
+        """Run document processing as a background asyncio task."""
+        import asyncio
+        from app.tasks.document_tasks import process_document
+
+        async def _run():
+            ctx = {"job_id": f"inline-{document_id}", "job_try": 1}
+            try:
+                await process_document(ctx, str(document_id))
+            except Exception as exc:
+                logger.error(f"Inline processing failed for {document_id}: {exc}")
+
+        asyncio.create_task(_run())
 
     # ============================================================
     # UPLOAD - The Main Entry Point
