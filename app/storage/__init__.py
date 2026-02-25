@@ -4,12 +4,12 @@ Storage Module
 This module provides file storage abstraction using the Strategy Pattern.
 The active backend is determined by configuration (STORAGE_BACKEND setting).
 
-Adding New Backends:
+Supported Backends:
 -------------------
-1. Create new file: storage/s3.py
-2. Implement S3Storage(StorageBackend)
-3. Add to get_storage() factory function
-4. Set STORAGE_BACKEND=s3 in config
+- "local": Local filesystem storage (default, ephemeral on cloud platforms)
+- "cloudinary": Cloudinary cloud storage (free tier: 25 credits/month)
+- "s3": Amazon S3 / Cloudflare R2 (not implemented yet)
+- "gcs": Google Cloud Storage (not implemented yet)
 
 The business logic never changes - only configuration!
 """
@@ -81,33 +81,33 @@ def _create_storage_backend() -> StorageBackend:
     if backend == "local":
         return LocalStorage(base_path=settings.UPLOAD_DIR)
     
+    elif backend == "cloudinary":
+        from app.storage.cloudinary_storage import CloudinaryStorage
+        return CloudinaryStorage(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+            folder_prefix=settings.CLOUDINARY_FOLDER_PREFIX,
+        )
+    
     elif backend == "s3":
         # Future implementation
-        # from app.storage.s3 import S3Storage
-        # return S3Storage(
-        #     bucket=settings.AWS_S3_BUCKET,
-        #     region=settings.AWS_REGION,
-        #     access_key=settings.AWS_ACCESS_KEY,
-        #     secret_key=settings.AWS_SECRET_KEY,
-        # )
         raise NotImplementedError(
             "S3 storage backend not implemented yet. "
-            "Set STORAGE_BACKEND=local for now."
+            "Set STORAGE_BACKEND=local or STORAGE_BACKEND=cloudinary."
         )
     
     elif backend == "gcs":
         # Future implementation
-        # from app.storage.gcs import GCSStorage
-        # return GCSStorage(bucket=settings.GCS_BUCKET)
         raise NotImplementedError(
             "GCS storage backend not implemented yet. "
-            "Set STORAGE_BACKEND=local for now."
+            "Set STORAGE_BACKEND=local or STORAGE_BACKEND=cloudinary."
         )
     
     else:
         raise ValueError(
             f"Unknown storage backend: {backend}. "
-            f"Valid options: local, s3, gcs"
+            f"Valid options: local, cloudinary, s3, gcs"
         )
 
 
@@ -150,4 +150,5 @@ __all__ = [
     
     # Concrete implementations (if needed directly)
     "LocalStorage",
+    # "CloudinaryStorage",  # Import from app.storage.cloudinary_storage
 ]

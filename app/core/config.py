@@ -100,8 +100,28 @@ class Settings(BaseSettings):
         description="Allowed file extensions for upload"
     )
 
+    # -------------------------
+    # Cloudinary (cloud file storage)
+    # -------------------------
+    CLOUDINARY_CLOUD_NAME: Optional[str] = Field(
+        default=None,
+        description="Cloudinary cloud name"
+    )
+    CLOUDINARY_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Cloudinary API key"
+    )
+    CLOUDINARY_API_SECRET: Optional[str] = Field(
+        default=None,
+        description="Cloudinary API secret"
+    )
+    CLOUDINARY_FOLDER_PREFIX: str = Field(
+        default="ai-tutor",
+        description="Prefix folder for all Cloudinary uploads"
+    )
+
     # =========================================================
-    # NEW: Vector Database Configuration (ChromaDB)
+    # Vector Database Configuration (ChromaDB)
     # =========================================================
     CHROMA_PERSIST_DIRECTORY: str = Field(
         default="storage/chroma",
@@ -113,15 +133,29 @@ class Settings(BaseSettings):
         description="Name of the ChromaDB collection for document chunks"
     )
     
-    # For production with remote ChromaDB server
+    # For self-hosted remote ChromaDB server
     CHROMA_HOST: Optional[str] = Field(
         default=None,
-        description="ChromaDB server host (if using client mode)"
+        description="ChromaDB server host (if using self-hosted client mode)"
     )
 
     CHROMA_PORT: int = Field(
         default=8000,
         description="ChromaDB server port"
+    )
+
+    # For ChromaDB Cloud (cloud.trychroma.com)
+    CHROMA_API_KEY: Optional[str] = Field(
+        default=None,
+        description="ChromaDB Cloud API key"
+    )
+    CHROMA_TENANT: Optional[str] = Field(
+        default=None,
+        description="ChromaDB Cloud tenant ID"
+    )
+    CHROMA_DATABASE: Optional[str] = Field(
+        default=None,
+        description="ChromaDB Cloud database name"
     )
 
     # =========================================================
@@ -206,7 +240,7 @@ class Settings(BaseSettings):
     @field_validator("STORAGE_BACKEND")
     def validate_storage_backend(cls, v):
         """Ensure storage backend is a valid option."""
-        allowed = {"local", "s3", "gcs"}
+        allowed = {"local", "cloudinary", "s3", "gcs"}
         if v not in allowed:
             raise ValueError(f"STORAGE_BACKEND must be one of: {allowed}")
         return v

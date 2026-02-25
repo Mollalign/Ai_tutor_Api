@@ -92,58 +92,72 @@ def get_arq_redis_settings() -> RedisSettings:
     ARQ uses its own RedisSettings class that parses the URL
     and extracts host, port, database, and password.
     
+    Supports both:
+    - redis://  (unencrypted, for local development)
+    - rediss:// (TLS/SSL, required by Upstash and most cloud providers)
+    
     Returns:
         RedisSettings configured from REDIS_URL
     """
-    # Parse Redis URL components
-    # Format: redis://[[username]:[password]@]host[:port][/db-number]
     url = settings.REDIS_URL
-    
-    # RedisSettings can parse a URL directly
-    # But we'll be explicit for clarity
     
     # Default values
     host = "localhost"
     port = 6379
     database = 0
     password = None
+    use_ssl = False
 
-    # Parse URL if it starts with redis://
-    if url.startswith("redis://"):
-        # Remove protocol prefix
-        url_parts = url.replace("redis://", "")
-        
-        # Check for password
-        if "@" in url_parts:
-            auth, url_parts = url_parts.split("@", 1)
-            if ":" in auth:
-                _, password = auth.split(":", 1)
-            else:
-                password = auth
-        
-        # Check for database number
-        if "/" in url_parts:
-            url_parts, db_str = url_parts.rsplit("/", 1)
-            try:
-                database = int(db_str)
-            except ValueError:
-                database = 0
-        
-        # Parse host:port
-        if ":" in url_parts:
-            host, port_str = url_parts.split(":", 1)
-            try:
-                port = int(port_str)
-            except ValueError:
-                port = 6379
+    # Detect protocol and extract the URL body
+    if url.startswith("rediss://"):
+        # TLS/SSL connection (Upstash, Redis Cloud, etc.)
+        use_ssl = True
+        url_body = url[len("rediss://"):]
+    elif url.startswith("redis://"):
+        # Standard unencrypted connection (local Docker, etc.)
+        use_ssl = False
+        url_body = url[len("redis://"):]
+    else:
+        # Fallback — treat as hostname
+        url_body = url
+    
+    # Parse auth (username:password@)
+    if "@" in url_body:
+        auth, url_body = url_body.split("@", 1)
+        if ":" in auth:
+            _, password = auth.split(":", 1)
         else:
-            host = url_parts or "localhost"
+            password = auth
+    
+    # Parse database number (/0, /1, etc.)
+    if "/" in url_body:
+        url_body, db_str = url_body.rsplit("/", 1)
+        try:
+            database = int(db_str)
+        except ValueError:
+            database = 0
+    
+    # Parse host:port
+    if ":" in url_body:
+        host, port_str = url_body.split(":", 1)
+        try:
+            port = int(port_str)
+        except ValueError:
+            port = 6379
+    else:
+        host = url_body or "localhost"
+
+    logger.info(
+        f"ARQ Redis settings: host={host}, port={port}, "
+        f"db={database}, ssl={use_ssl}"
+    )
 
     return RedisSettings(
         host=host,
         port=port,
         database=database,
         password=password,
+        ssl=use_ssl,
         # Connection retry settings
         conn_timeout=10,       # Timeout for initial connection (seconds)
         conn_retries=5,        # Number of retry attempts

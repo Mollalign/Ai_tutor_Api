@@ -59,7 +59,8 @@ def get_chroma_client() -> chromadb.ClientAPI:
     Get or create ChromaDB client (singleton).
     
     Creates appropriate client based on configuration:
-    - If CHROMA_HOST is set: Connect to remote server
+    - If CHROMA_API_KEY is set: Connect to ChromaDB Cloud
+    - If CHROMA_HOST is set: Connect to self-hosted remote server
     - Otherwise: Use persistent local storage
     
     Returns:
@@ -70,8 +71,20 @@ def get_chroma_client() -> chromadb.ClientAPI:
     if _chroma_client is not None:
         return _chroma_client
     
-    if settings.CHROMA_HOST:
-        # Client mode - connect to remote server
+    if settings.CHROMA_API_KEY:
+        # ChromaDB Cloud mode
+        logger.info("Connecting to ChromaDB Cloud...")
+        _chroma_client = chromadb.CloudClient(
+            tenant=settings.CHROMA_TENANT,
+            database=settings.CHROMA_DATABASE,
+            api_key=settings.CHROMA_API_KEY,
+        )
+        logger.info(
+            f"ChromaDB Cloud connected "
+            f"(tenant: {settings.CHROMA_TENANT}, db: {settings.CHROMA_DATABASE})"
+        )
+    elif settings.CHROMA_HOST:
+        # Self-hosted remote server mode
         logger.info(
             f"Connecting to ChromaDB server at "
             f"{settings.CHROMA_HOST}:{settings.CHROMA_PORT}"
@@ -80,8 +93,9 @@ def get_chroma_client() -> chromadb.ClientAPI:
             host=settings.CHROMA_HOST,
             port=settings.CHROMA_PORT
         )
+        logger.info("ChromaDB remote server connected")
     else:
-        # Persistent mode - local storage
+        # Persistent local storage mode
         persist_path = Path(settings.CHROMA_PERSIST_DIRECTORY)
         persist_path.mkdir(parents=True, exist_ok=True)
         
