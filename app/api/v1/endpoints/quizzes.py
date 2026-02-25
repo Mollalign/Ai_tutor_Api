@@ -165,13 +165,48 @@ async def submit_quiz(
     submission: QuizSubmitRequest,
     current_user: User = Depends(get_current_user),
     service: QuizService = Depends(get_quiz_service),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
-        return await service.submit_quiz(
+        result = await service.submit_quiz(
             quiz_id=quiz_id,
             user_id=current_user.id,
             submission=submission,
         )
+
+        # Send push notification if user has FCM token and quiz_results enabled
+        try:
+            from sqlalchemy import select as sa_select
+            from app.models.notification_preference import NotificationPreference
+            from app.models.quiz import Quiz
+            from app.services.notification_service import send_quiz_result_notification
+
+            pref_result = await db.execute(
+                sa_select(NotificationPreference).where(
+                    NotificationPreference.user_id == current_user.id
+                )
+            )
+            pref = pref_result.scalar_one_or_none()
+            should_notify = pref is None or pref.quiz_results_enabled
+
+            if should_notify:
+                quiz_result = await db.execute(
+                    sa_select(Quiz.title).where(Quiz.id == quiz_id)
+                )
+                quiz_title = quiz_result.scalar_one_or_none() or "Quiz"
+
+                await send_quiz_result_notification(
+                    fcm_token=current_user.fcm_token,
+                    quiz_title=quiz_title,
+                    score_pct=result.percentage,
+                    passed=result.passed,
+                    db=db,
+                    user_id=current_user.id,
+                )
+        except Exception as notify_err:
+            logger.warning("Quiz notification failed: %s", notify_err)
+
+        return result
     except QuizNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

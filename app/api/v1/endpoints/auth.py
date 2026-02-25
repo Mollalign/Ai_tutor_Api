@@ -17,6 +17,9 @@ from app.schemas.auth import (
     GoogleAuthRequest,
     UserUpdateRequest,
     ChangePasswordRequest,
+    FcmTokenRequest,
+    NotificationPreferencesUpdate,
+    NotificationPreferencesResponse,
 )
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
@@ -188,6 +191,7 @@ async def get_me(
         id=str(current_user.id),
         email=current_user.email,
         full_name=current_user.full_name,
+        avatar_color=current_user.avatar_color,
         is_active=current_user.is_active,
         default_socratic_mode=current_user.default_socratic_mode,
         created_at=current_user.created_at,
@@ -217,6 +221,8 @@ async def update_me(
         current_user.full_name = update_data.full_name
     if update_data.default_socratic_mode is not None:
         current_user.default_socratic_mode = update_data.default_socratic_mode
+    if update_data.avatar_color is not None:
+        current_user.avatar_color = update_data.avatar_color
 
     await db.commit()
     await db.refresh(current_user)
@@ -225,6 +231,7 @@ async def update_me(
         id=str(current_user.id),
         email=current_user.email,
         full_name=current_user.full_name,
+        avatar_color=current_user.avatar_color,
         is_active=current_user.is_active,
         default_socratic_mode=current_user.default_socratic_mode,
         created_at=current_user.created_at,
@@ -386,4 +393,102 @@ async def reset_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
-        )    
+        )
+
+
+# ============================================================
+# FCM Token Endpoint
+# ============================================================
+
+@router.post(
+    "/fcm-token",
+    response_model=MessageResponse,
+    summary="Save or update FCM token for push notifications",
+)
+async def save_fcm_token(
+    request_data: FcmTokenRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save the device's FCM token for push notifications."""
+    current_user.fcm_token = request_data.fcm_token
+    await db.commit()
+    return MessageResponse(message="FCM token saved.", success=True)
+
+
+# ============================================================
+# Notification Preferences Endpoints
+# ============================================================
+
+@router.get(
+    "/notification-preferences",
+    response_model=NotificationPreferencesResponse,
+    summary="Get notification preferences",
+)
+async def get_notification_preferences(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current user's notification preferences."""
+    from sqlalchemy import select
+    from app.models.notification_preference import NotificationPreference
+
+    result = await db.execute(
+        select(NotificationPreference).where(
+            NotificationPreference.user_id == current_user.id
+        )
+    )
+    pref = result.scalar_one_or_none()
+
+    if pref is None:
+        return NotificationPreferencesResponse()
+
+    return NotificationPreferencesResponse(
+        study_reminders_enabled=pref.study_reminders_enabled,
+        reminder_time=pref.reminder_time.strftime("%H:%M") if pref.reminder_time else None,
+        quiz_results_enabled=pref.quiz_results_enabled,
+    )
+
+
+@router.patch(
+    "/notification-preferences",
+    response_model=NotificationPreferencesResponse,
+    summary="Update notification preferences",
+)
+async def update_notification_preferences(
+    update_data: NotificationPreferencesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the current user's notification preferences."""
+    from datetime import time
+    from sqlalchemy import select
+    from app.models.notification_preference import NotificationPreference
+
+    result = await db.execute(
+        select(NotificationPreference).where(
+            NotificationPreference.user_id == current_user.id
+        )
+    )
+    pref = result.scalar_one_or_none()
+
+    if pref is None:
+        pref = NotificationPreference(user_id=current_user.id)
+        db.add(pref)
+
+    if update_data.study_reminders_enabled is not None:
+        pref.study_reminders_enabled = update_data.study_reminders_enabled
+    if update_data.reminder_time is not None:
+        parts = update_data.reminder_time.split(":")
+        pref.reminder_time = time(int(parts[0]), int(parts[1]))
+    if update_data.quiz_results_enabled is not None:
+        pref.quiz_results_enabled = update_data.quiz_results_enabled
+
+    await db.commit()
+    await db.refresh(pref)
+
+    return NotificationPreferencesResponse(
+        study_reminders_enabled=pref.study_reminders_enabled,
+        reminder_time=pref.reminder_time.strftime("%H:%M") if pref.reminder_time else None,
+        quiz_results_enabled=pref.quiz_results_enabled,
+    )

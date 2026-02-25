@@ -17,6 +17,8 @@ from app.models.shared_conversation import (
     ConversationFork,
     ShareType,
 )
+from app.models.notification_preference import NotificationPreference
+from app.models.notification import Notification
 
 __all__ = [
     "Base",
@@ -37,4 +39,6 @@ __all__ = [
     "ConversationAccess",
     "ConversationFork",
     "ShareType",
+    "NotificationPreference",
+    "Notification",
 ]

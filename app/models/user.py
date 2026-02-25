@@ -9,11 +9,13 @@ class User(BaseModel):
     password_hash = Column(String(255), nullable=True)
     full_name = Column(String(100), nullable=False)
     avatar_url = Column(String(500), nullable=True)
+    avatar_color = Column(String(7), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     default_socratic_mode = Column(Boolean, default=True, nullable=False)
     last_login = Column(DateTime(timezone=True), nullable=True)
     auth_provider = Column(String(50), default="email", nullable=False)
     google_id = Column(String(255), nullable=True, unique=True, index=True)
+    fcm_token = Column(String(500), nullable=True)
     
     # Relationships - User OWNS these
     projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")

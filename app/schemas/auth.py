@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, time
 import re
 
 
@@ -89,6 +89,7 @@ class UserUpdateRequest(BaseModel):
     """Schema for updating user profile fields."""
     full_name: Optional[str] = Field(None, min_length=2, max_length=100)
     default_socratic_mode: Optional[bool] = None
+    avatar_color: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
 
     @field_validator("full_name")
     @classmethod
@@ -113,6 +114,25 @@ class ChangePasswordRequest(BaseModel):
         if not re.search(r"\d", v):
             raise ValueError("Password must contain at least one digit")
         return v
+
+
+class FcmTokenRequest(BaseModel):
+    """Schema for saving/updating FCM token."""
+    fcm_token: str = Field(..., max_length=500)
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    """Schema for updating notification preferences."""
+    study_reminders_enabled: Optional[bool] = None
+    reminder_time: Optional[str] = Field(None, pattern=r'^\d{2}:\d{2}$')
+    quiz_results_enabled: Optional[bool] = None
+
+
+class NotificationPreferencesResponse(BaseModel):
+    """Schema for notification preferences response."""
+    study_reminders_enabled: bool = False
+    reminder_time: Optional[str] = None
+    quiz_results_enabled: bool = True
 
 
 # ============================================================
@@ -202,6 +222,7 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     avatar_url: Optional[str] = None
+    avatar_color: Optional[str] = None
     is_active: bool
     default_socratic_mode: bool
     created_at: datetime

@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     )
 
     # -------------------------
+    # Firebase
+    # -------------------------
+    FIREBASE_SERVICE_ACCOUNT_KEY_PATH: Optional[str] = Field(
+        default=None,
+        description="Path to Firebase service account JSON key file for FCM"
+    )
+
+    # -------------------------
     # Redis (for ARQ task queue)
     # -------------------------
     REDIS_URL: str = Field(

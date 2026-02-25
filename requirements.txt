@@ -169,7 +169,9 @@ websocket-client==1.9.0
 websockets==15.0.1
 xlsxwriter==3.2.9
 xxhash==3.6.0
+firebase-admin==7.1.0
 yarl==1.22.0
 youtube-transcript-api==1.2.4
 zipp==3.23.0
 zstandard==0.25.0
+google-auth>=2.27.0
