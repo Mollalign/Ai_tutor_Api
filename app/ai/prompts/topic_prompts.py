@@ -30,13 +30,14 @@ Return ONLY valid JSON (no markdown fences, no extra text). The JSON must be an 
 ]
 
 RULES:
-- Extract 3-8 main topics (not too granular, not too broad)
-- Each topic should have 2-5 subtopics
-- Each subtopic should have 2-4 learning objectives
-- Learning objectives should be actionable (use Bloom's taxonomy verbs)
+- Extract 3-6 main topics (not too granular, not too broad)
+- Each topic should have 2-4 subtopics
+- Each subtopic should have 2-3 learning objectives
+- Learning objectives should be short (under 15 words) and actionable (use Bloom's taxonomy verbs)
 - Base extraction ONLY on the provided content
-- Names should be concise but descriptive
-- Descriptions should be 1-2 sentences"""
+- Names should be concise (under 8 words)
+- Descriptions should be 1 sentence max
+- Keep the entire response compact to avoid truncation"""
 
 
 def build_topic_context_prompt(context: str) -> str:

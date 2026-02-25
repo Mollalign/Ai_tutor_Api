@@ -83,12 +83,22 @@ class TopicService:
             messages=[{"role": "user", "content": context_prompt}],
             system_prompt=system_prompt,
             temperature=0.3,
-            max_tokens=4096,
+            max_tokens=8192,
         )
 
-        topics_data = self._parse_topics_json(response["content"])
+        try:
+            topics_data = self._parse_topics_json(response["content"])
+        except TopicServiceError:
+            logger.warning("First topic extraction attempt failed, retrying with shorter prompt")
+            retry_response = await chat_completion(
+                messages=[{"role": "user", "content": context_prompt + "\n\nIMPORTANT: Keep output SHORT. Max 4 topics, 3 subtopics each, 2 objectives each. Descriptions under 10 words."}],
+                system_prompt=system_prompt,
+                temperature=0.2,
+                max_tokens=8192,
+            )
+            topics_data = self._parse_topics_json(retry_response["content"])
 
-        db_topics = []
+        topic_pairs: list[tuple[Topic, list[Subtopic]]] = []
         for i, t_data in enumerate(topics_data):
             topic = Topic(
                 project_id=project_id,
@@ -118,12 +128,14 @@ class TopicService:
             for st in subtopics:
                 await self.db.refresh(st)
 
-            topic.subtopics = subtopics
-            db_topics.append(topic)
+            topic_pairs.append((topic, subtopics))
 
         await self.db.commit()
 
-        return [self._build_topic_response(t) for t in db_topics]
+        return [
+            self._build_topic_response(t, explicit_subtopics=subs)
+            for t, subs in topic_pairs
+        ]
 
     # ============================================================
     # LIST TOPICS
@@ -167,7 +179,12 @@ class TopicService:
                 "Failed to parse AI-generated topics. Please try again."
             )
 
-    def _build_topic_response(self, topic: Topic) -> TopicResponse:
+    def _build_topic_response(
+        self,
+        topic: Topic,
+        explicit_subtopics: list[Subtopic] | None = None,
+    ) -> TopicResponse:
+        subs = explicit_subtopics if explicit_subtopics is not None else (topic.subtopics or [])
         subtopic_responses = [
             SubtopicResponse(
                 id=st.id,
@@ -177,7 +194,7 @@ class TopicService:
                 is_auto_generated=st.is_auto_generated,
                 display_order=st.display_order,
             )
-            for st in (topic.subtopics or [])
+            for st in subs
         ]
 
         return TopicResponse(
