@@ -66,6 +66,42 @@ class UserRepository(BaseRepository[User]):
         return user
 
     # =================
+    # Get by Google ID
+    # =================
+    async def get_by_google_id(self, google_id: str) -> Optional[User]:
+        """Get a user by their Google sub claim."""
+        result = await self.db.execute(
+            select(User).where(User.google_id == google_id)
+        )
+        return result.scalar_one_or_none()
+
+    # =================
+    # Create Google user
+    # =================
+    async def create_google_user(
+        self,
+        email: str,
+        full_name: str,
+        google_id: str,
+        avatar_url: Optional[str] = None,
+    ) -> User:
+        """Create a new user from Google Sign-In (no password)."""
+        user = User(
+            email=email,
+            password_hash=None,
+            full_name=full_name,
+            google_id=google_id,
+            auth_provider="google",
+            avatar_url=avatar_url,
+            is_active=True,
+            default_socratic_mode=True,
+        )
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+
+    # =================
     # Update user
     # =================
     async def update_user(self, user_id, **kwargs) -> Optional[User]:

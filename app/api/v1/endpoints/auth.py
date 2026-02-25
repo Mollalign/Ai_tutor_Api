@@ -13,7 +13,8 @@ from app.schemas.auth import (
     PasswordResetRequest,
     PasswordResetConfirm,
     VerifyResetCodeRequest,
-    MessageResponse
+    MessageResponse,
+    GoogleAuthRequest,
 )
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
@@ -94,6 +95,41 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"}
         )    
     
+# ============================================================
+# Google Sign-In Endpoint
+# ============================================================
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    responses={
+        200: {"description": "Google authentication successful"},
+        401: {"model": ErrorResponse, "description": "Invalid Google token"},
+    }
+)
+async def google_auth(
+    request_data: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Authenticate or register via Google Sign-In.
+
+    The client sends the Google ID token obtained from the Google Sign-In SDK.
+    The backend verifies it with Google, finds or creates the user, and returns
+    JWT tokens.
+    """
+    auth_service = AuthService(db)
+
+    try:
+        return await auth_service.google_auth(request_data.id_token)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 # ============================================================
 # Token Refresh Endpoint
 # ============================================================

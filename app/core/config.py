@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 15
 
     # -------------------------
+    # Google OAuth
+    # -------------------------
+    GOOGLE_CLIENT_ID: Optional[str] = Field(
+        default=None,
+        description="Google OAuth Web Client ID for verifying ID tokens"
+    )
+
+    # -------------------------
     # Redis (for ARQ task queue)
     # -------------------------
     REDIS_URL: str = Field(

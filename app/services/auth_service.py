@@ -1,5 +1,9 @@
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
+
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 
 from app.models import User
 from app.repositories.user_repo import UserRepository
@@ -16,6 +20,8 @@ from app.core.security import (
 from app.utils.email import send_password_reset_code
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -82,8 +88,13 @@ class AuthService:
         # Find user by email
         user = await self.user_repo.get_by_email(login_data.email)
 
-        # Check if user exists and password is correct
-        if not user or not verify_password(login_data.password, user.password_hash):
+        if not user:
+            raise ValueError("Invalid email or password")
+
+        if user.auth_provider != "email" or user.password_hash is None:
+            raise ValueError("This account uses Google Sign-In. Please use the Google button to log in.")
+
+        if not verify_password(login_data.password, user.password_hash):
             raise ValueError("Invalid email or password")
         
         # Check if user is active
@@ -270,6 +281,61 @@ class AuthService:
         
         return True
     
+
+    # ============================================================
+    # Google Sign-In
+    # ============================================================
+
+    async def google_auth(self, id_token_str: str) -> TokenResponse:
+        """
+        Authenticate or register a user via Google ID token.
+
+        Verifies the token with Google, then finds or creates the user.
+        """
+        try:
+            idinfo = google_id_token.verify_oauth2_token(
+                id_token_str,
+                google_requests.Request(),
+                settings.GOOGLE_CLIENT_ID,
+            )
+        except ValueError as e:
+            logger.warning("Google token verification failed: %s", e)
+            raise ValueError("Invalid Google ID token")
+
+        google_sub = idinfo["sub"]
+        email = idinfo.get("email")
+        name = idinfo.get("name", email)
+        picture = idinfo.get("picture")
+
+        if not email:
+            raise ValueError("Google account has no email address")
+
+        user = await self.user_repo.get_by_google_id(google_sub)
+
+        if not user:
+            user = await self.user_repo.get_by_email(email)
+            if user:
+                user.google_id = google_sub
+                user.auth_provider = "google"
+                if picture and not user.avatar_url:
+                    user.avatar_url = picture
+                await self.db.commit()
+                await self.db.refresh(user)
+            else:
+                user = await self.user_repo.create_google_user(
+                    email=email,
+                    full_name=name,
+                    google_id=google_sub,
+                    avatar_url=picture,
+                )
+
+        if not user.is_active:
+            raise ValueError("This account has been deactivated")
+
+        user.last_login = datetime.now(timezone.utc)
+        await self.db.commit()
+
+        return self._create_token_response(user)
 
     # ============================================================
     # Helper Methods

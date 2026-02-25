@@ -80,6 +80,11 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class GoogleAuthRequest(BaseModel):
+    """Schema for Google Sign-In authentication"""
+    id_token: str = Field(..., description="Google ID token from the client SDK")
+
+
 # ============================================================
 # Response Schemas (What server sends back)
 # ============================================================
