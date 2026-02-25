@@ -176,8 +176,9 @@ class CloudinaryStorage(StorageBackend):
         """
         Download file content from Cloudinary.
 
-        Uses the Admin API to get the resource's secure_url (CDN link),
-        then downloads the file content from that URL.
+        Uses the Admin API to get the secure_url, then downloads
+        with HTTP Basic Auth (api_key:api_secret) to handle accounts
+        where raw file access is restricted.
 
         Args:
             path: Storage path (public_id)
@@ -188,7 +189,6 @@ class CloudinaryStorage(StorageBackend):
         public_id = self._build_public_id(path)
 
         try:
-            # Use the Admin API to get the resource metadata + URL
             resource = cloudinary.api.resource(
                 public_id,
                 resource_type="raw",
@@ -198,9 +198,16 @@ class CloudinaryStorage(StorageBackend):
             if not download_url:
                 raise StorageFileNotFoundError(f"No URL for file: {path}")
 
-            logger.debug(f"Downloading from Cloudinary CDN: {download_url}")
-
+            # Try unauthenticated first (faster, CDN-cached)
             response = await self._http_client.get(download_url)
+
+            if response.status_code == 401:
+                # Raw access restricted -- retry with Basic Auth credentials
+                cfg = cloudinary.config()
+                auth = httpx.BasicAuth(cfg.api_key, cfg.api_secret)
+                logger.debug("CDN returned 401, retrying with Basic Auth")
+                response = await self._http_client.get(download_url, auth=auth)
+
             response.raise_for_status()
 
             content = response.content

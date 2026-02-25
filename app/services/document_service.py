@@ -122,27 +122,25 @@ class DocumentService:
 
     async def _enqueue_processing(self, document_id: UUID) -> None:
         """
-        Add document to processing queue.
+        Process document in the background.
 
-        Tries ARQ (Redis worker) first. If Redis is unavailable,
-        falls back to in-process background task via asyncio so
-        documents still get processed on free-tier hosts without
-        a separate worker service.
+        Always runs inline via asyncio.create_task so it works on
+        free-tier hosts (Render, Railway) without a separate worker.
+        Also tries to enqueue to ARQ/Redis for tracking, but the
+        inline task does the actual processing.
         """
+        # Always process inline (no worker dependency)
+        self._process_inline(document_id)
+
+        # Optionally enqueue to Redis for tracking/logging
         try:
             pool = await get_arq_pool()
             await pool.enqueue_job(
                 'process_document',
                 document_id=str(document_id)
             )
-            logger.info(f"Document {document_id} queued for processing (ARQ)")
-
-        except Exception as e:
-            logger.warning(
-                f"ARQ queue unavailable ({e}), "
-                f"falling back to in-process processing for {document_id}"
-            )
-            self._process_inline(document_id)
+        except Exception:
+            pass  # Redis is optional
 
     def _process_inline(self, document_id: UUID) -> None:
         """Run document processing as a background asyncio task."""
