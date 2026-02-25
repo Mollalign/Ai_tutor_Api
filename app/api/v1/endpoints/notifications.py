@@ -1,11 +1,5 @@
 """
 Notification Endpoints
-
-Endpoints:
-----------
-- GET   /notifications           - List user notifications
-- POST  /notifications/mark-all-read  - Mark all as read
-- GET   /notifications/unread-count   - Get unread count
 """
 
 import logging
@@ -23,6 +17,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
+async def _ensure_welcome_notification(db: AsyncSession, user: User):
+    """Create a welcome notification if user has zero notifications."""
+    count_result = await db.execute(
+        select(func.count(Notification.id)).where(
+            Notification.user_id == user.id,
+        )
+    )
+    total = count_result.scalar() or 0
+    if total == 0:
+        welcome = Notification(
+            user_id=user.id,
+            title="Welcome to AI Tutor!",
+            body="Start learning by creating a project, uploading documents, and chatting with your AI tutor. Take quizzes to test your knowledge!",
+            type="general",
+        )
+        db.add(welcome)
+        await db.commit()
+
+
 @router.get(
     "",
     summary="List notifications for the current user",
@@ -33,6 +46,8 @@ async def list_notifications(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await _ensure_welcome_notification(db, current_user)
+
     result = await db.execute(
         select(Notification)
         .where(Notification.user_id == current_user.id)

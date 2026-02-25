@@ -56,6 +56,16 @@ async def save_notification(
     await db.commit()
 
 
+async def save_study_notification(
+    db,
+    user_id: UUID,
+    title: str,
+    body: str,
+):
+    """Save a study-related notification."""
+    await save_notification(db, user_id, title, body, "study_reminder")
+
+
 async def send_push_notification(
     fcm_token: str,
     title: str,
