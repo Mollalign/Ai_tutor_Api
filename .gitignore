@@ -27,8 +27,8 @@ dist/
 build/
 *.egg-info/
 
-# Local storage
-storage/
+# Local storage (data directory at repo root only)
+/storage/
 test/
 scripts/
 
