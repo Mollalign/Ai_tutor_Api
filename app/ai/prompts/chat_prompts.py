@@ -15,7 +15,10 @@ rather than direct answers. This promotes:
 
 def build_system_prompt(
     is_socratic: bool = True,
-    has_context: bool = False
+    has_context: bool = False,
+    learning_style_hint: str = "",
+    conversation_memory: str = "",
+    cross_topic_hint: str = "",
 ) -> str:
     """
     Build the system prompt for the AI tutor.
@@ -23,6 +26,9 @@ def build_system_prompt(
     Args:
         is_socratic: Whether to use Socratic teaching mode
         has_context: Whether RAG context is provided
+        learning_style_hint: Prompt adaptation for detected learning style
+        conversation_memory: Summary of recent conversations for continuity
+        cross_topic_hint: Cross-topic connections to reference
     
     Returns:
         System prompt string
@@ -78,7 +84,20 @@ IMPORTANT: You have been provided with relevant content from the student's cours
 Note: No specific course materials are available for this question.
 Provide helpful information from your general knowledge while being clear about limitations."""
         base_prompt += no_context_addition
-    
+
+    if learning_style_hint:
+        base_prompt += f"\n\nADAPT YOUR TEACHING STYLE:\n{learning_style_hint}"
+
+    if conversation_memory:
+        base_prompt += f"\n\nCONVERSATION MEMORY:\n{conversation_memory}"
+
+    if cross_topic_hint:
+        base_prompt += (
+            f"\n\nCROSS-TOPIC CONNECTIONS:\n{cross_topic_hint}\n"
+            "When relevant, mention how this topic connects to concepts "
+            "the student has studied in other courses."
+        )
+
     return base_prompt
 
 

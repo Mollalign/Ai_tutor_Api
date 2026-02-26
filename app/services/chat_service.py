@@ -66,6 +66,7 @@ from app.ai.loaders.url_loader import (
     URLType,
 )
 from app.repositories.sharing_repo import ConversationAccessRepository
+from app.services.smart_tutor_service import SmartTutorService
 
 logger = logging.getLogger(__name__)
 
@@ -417,10 +418,14 @@ class ChatService:
             url_content=url_content,  # NEW: Include URL content
         )
         
-        # Build system prompt
+        # Build system prompt with smart context
+        smart_ctx = await self._get_smart_context(
+            user_id, conversation_id, conversation.project_id
+        )
         system_prompt = build_system_prompt(
             is_socratic=conversation.is_socratic,
-            has_context=bool(context) or bool(url_content)
+            has_context=bool(context) or bool(url_content),
+            **smart_ctx,
         )
         
         # ============================================================
@@ -575,15 +580,19 @@ class ChatService:
         if sources:
             yield {"type": "sources", "sources": sources}
         
-        # Build messages and prompt
+        # Build messages and prompt with smart context
         llm_messages = self._build_llm_messages(
             history, 
             context,
             url_content=url_content,
         )
+        smart_ctx = await self._get_smart_context(
+            user_id, conversation_id, conversation.project_id
+        )
         system_prompt = build_system_prompt(
             is_socratic=conversation.is_socratic,
-            has_context=bool(context) or bool(url_content)
+            has_context=bool(context) or bool(url_content),
+            **smart_ctx,
         )
         
         # ============================================================
@@ -816,6 +825,31 @@ class ChatService:
             messages=[MessageResponse.model_validate(m) for m in messages]
         )
     
+    async def _get_smart_context(
+        self,
+        user_id: UUID,
+        conversation_id: UUID,
+        project_id: Optional[UUID],
+    ) -> Dict[str, str]:
+        """Gather learning style, conversation memory, and cross-topic hints."""
+        result: Dict[str, str] = {}
+        try:
+            smart = SmartTutorService(self.db)
+
+            style = await smart.detect_learning_style(user_id)
+            if style.get("ai_prompt_hint"):
+                result["learning_style_hint"] = style["ai_prompt_hint"]
+
+            memory = await smart.get_conversation_memory(
+                user_id, project_id, conversation_id
+            )
+            if memory:
+                result["conversation_memory"] = memory
+        except Exception as e:
+            logger.debug(f"Smart context enrichment skipped: {e}")
+
+        return result
+
     async def _auto_generate_title(
         self,
         conversation_id: UUID,

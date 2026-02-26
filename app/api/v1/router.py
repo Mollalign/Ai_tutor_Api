@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, projects, documents, conversations, sharing, quizzes, topics, knowledge, notifications
+from app.api.v1.endpoints import auth, projects, documents, conversations, sharing, quizzes, topics, knowledge, notifications, smart_tutor
 
 # ============================================================
 # Main API v1 Router
@@ -57,4 +57,9 @@ api_router.include_router(
 api_router.include_router(
     notifications.router,
     prefix=""  # Routes define own prefix (/notifications)
+)
+
+api_router.include_router(
+    smart_tutor.router,
+    prefix=""  # Routes define own prefix (/smart/*)
 )
